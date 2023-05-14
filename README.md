@@ -11,9 +11,9 @@ English | [中文](./README-CN.md)
 
 - [x] Cross-platform clipboard to save your time⏰
   - [x] Web-interface (built-in)
-  - [x] Android App
+  - [ ] Android App
   - [ ] iOS App
-  - [x] Windows App
+  - [ ] Windows App
 - [x] Native Copy&Paste function support📋
 - [x] Encrypted Transmitting🔒
 - [x] An offcial online service🌐
