@@ -39,5 +39,14 @@ Requirements:
 
 Based On GPT-3.0 LISENCE
 
+### Used projects
+
+Font Awesome
+Less
+
+
+## Want to say
+
+Basically it's just a project start with beautiful UI, then functions, cuz' I'm always confused with transferring files between devices, then I made this tool. Wish you enjoy.
 
 
