@@ -10,7 +10,7 @@ English | [中文](./README-CN.md)
 ## Features
 
 - [x] Cross-platform clipboard to save your time⏰
-  - [x] Web-interface (built-in)
+  - [x] Web-interface (built-in) (this respository)
   - [ ] Android App
   - [ ] iOS App
   - [ ] Windows App
