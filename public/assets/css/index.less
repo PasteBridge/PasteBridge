@@ -40,7 +40,6 @@ html{
     height: 100%;
     width: 100%;
     overflow: hidden;
-    z-index: 10;
     transform: scale(1.2);
     transition: all 0.5s ease-in-out;
     animation: background-flow 8s infinite;
@@ -53,7 +52,7 @@ html{
     padding: 0;
     width: 100%;
     height: 100%;
-    background: url('pic\\rainbow-2.png') no-repeat fixed;
+    background: url('../bg/rainbow-3.png') no-repeat fixed;
     /* background: rgb(77, 77, 77); */
     background-size: cover; 
     box-sizing:border-box;
@@ -79,17 +78,17 @@ html{
 @footer-height:60px;
 #main-content-box{
     background: rgba(240, 240, 240, 0.671);
-    position: absolute;
+    position: fixed;
     top: 0;
     bottom: 0;
     left: 0;
     right: 0;
-    z-index: 10;
     height: 100%;
     margin: auto auto  @footer-height auto;
     display: flex;
     transition: width 0.5s cubic-bezier(0.075, 0.82, 0.165, 1);
     width: 1200px;
+    flex: 1;
 }
 
 #data-list-box{
@@ -98,40 +97,154 @@ html{
     top: 0;
     bottom: 0;
     overflow-y: scroll;
-    width: 60%;
+    flex: 1;
 }
 
-
-#-box{
-    height: 100%;
-    transition: opacity 0.6s cubic-bezier(0.075, 0.82, 0.165, 1);
-    display: flex;
-    flex-grow: 1;
-    flex-direction: column
-}
-
-
-
-.left-box{
+#info-box{
+    position: absolute;
     float: left;
-    width: 700px; /* 根据您原来的样式，设置datalistbox的宽度 */
+    width: @left-div-width;
+    height: 100%;
+    z-index: 10;
+    display: flex;
+}
+
+#info-box-favicon{
+    position: absolute;
+    left: calc(50% - @info-box-favicon-width / 2);
+    right: 50%;
+    top: 50%;
+    bottom: 50%;
+    transition: opacity 0.5s cubic-bezier(0.075, 0.82, 0.165, 1);
+    opacity: 0.3;
+}
+
+#info-box-favicon:hover{
+    opacity: 1;
+}
+
+@info-box-favicon-width:150px;
+#info-box-favicon img{
+    width: @info-box-favicon-width;
+    height: @info-box-favicon-width;
+}
+
+#info-box-bottom{
+    font-size: 0.6em;
+    color: @font-i-grey1;
+    text-align: center;
+    position: absolute;
+    bottom: @right-div-padding;
+    display: inline-block;
+    width: @left-div-width;
+}
+
+#info-box-bottom i{
+
+}
+
+
+
+//主布局
+@left-div-width:700px;
+#left-div{
+    display: flex;
+    float: left;
+    width: @left-div-width; /* 根据您原来的样式，设置datalistbox的宽度 */
+}
+
+@right-div-padding:20px;
+#right-div{
+    height: 100%;
+    flex: 1;
+    display: flex;
+ /* 根据您原来的样式，设置datalistbox的宽度 */
+}
+
+.left-box{/* 根据您原来的样式，设置datalistbox的宽度 */
 }
 
 .right-box{
-    overflow: hidden;
-    display: flex;
-    flex-grow: 1;
+    flex-wrap: nowrap;
 }
 
+
 #login-box {
-    width: auto;
+    display: flex;
+    flex-direction: column-reverse;
+    position: relative;
+    flex: 1 1 calc(100% - 700px);
+    width: 100%;
     height: 100%;
     opacity: 1;
 }
+
+@login-input-box-height:230px;
+
+#login-input-box{
+    width: calc(100% - 2 * @right-div-padding);
+    margin: 0 @right-div-padding;
+    bottom: @right-div-padding;
+    height: @login-input-box-height;
+    background-color: rgb(243, 243, 243);
+    padding: 20px;
+
+    transition: height 0.3s cubic-bezier(0.075, 0.82, 0.165, 1);
+    transition: opacity 0.6s cubic-bezier(0.075, 0.82, 0.165, 1);
+}
+
+#login-selection-box{
+    position: relative;
+    width: calc(100% - 2 * @right-div-padding);
+    margin: 0 @right-div-padding 20px @right-div-padding;
+    height: auto;
+    background-color: rgb(243, 243, 243);
+    padding: 20px;
+    color: @font-i-grey1;
+    transition: height 0.3s cubic-bezier(0.075, 0.82, 0.165, 1);
+    transition: opacity 0.6s cubic-bezier(0.075, 0.82, 0.165, 1);
+    //z-index-1 customized
+    box-shadow: 0 2px 2px 0 rgba(0,0,0,0.0), 0 3px 1px -2px rgba(0,0,0,0.12), 0 1px 5px 0 rgba(0,0,0,0.2);
+}
+
+
+#input-box{
+    position: absolute;
+    bottom: 130px;
+    width: 100%;
+    margin: 0 5px;
+    height: 380px;
+}
+
+
+
+
 #control-box{
+    flex:  0 0 0;
     width: auto;
     height: 100%;
     opacity: 0;
+}
+
+#login-button{
+    position: absolute;
+    right: 27px;
+    bottom: 30px;
+    height: 45px;
+    width: 45px;
+    border-radius: 100%;
+    border: 0ch;
+    transition: 0.12s ease-in-out;
+    user-select: none;
+}
+
+#login-button i{
+    position: absolute;
+    right: 13.5px;
+    bottom: 6px;
+    height: 25px;
+    color: rgb(77, 137, 194);
+    font-size: 20px;
 }
 
 #data-list{
@@ -276,17 +389,7 @@ html{
 }
 
 
-#login-input-box{
-    position: absolute;
-    bottom: 130px;
-    width: calc(100%);
-    margin: 0 5px;
-    height: 230px;
-    background-color: rgb(243, 243, 243);
-    padding: 20px;
-    transition: height 0.3s cubic-bezier(0.075, 0.82, 0.165, 1);
-    transition: opacity 0.6s cubic-bezier(0.075, 0.82, 0.165, 1);
-}
+
 
 #change-password-box{
     text-align: center;
@@ -355,33 +458,9 @@ html{
     display: inline-block;
 }
 
-#copyroomtimelimit-input-field{
-    width: 25%;
-    left: 5%;
-    display: inline-block;
-}
 
 
-#login-button{
-    position: absolute;
-    right: 8px;
-    bottom: 100px;
-    height: 45px;
-    width: 45px;
-    border-radius: 100%;
-    border: 0ch;
-    transition: 0.12s ease-in-out;
-    user-select: none;
-}
 
-#login-button i{
-    position: absolute;
-    right: 13.5px;
-    bottom: 6px;
-    height: 25px;
-    color: rgb(77, 137, 194);
-    font-size: 20px;
-}
 
 #upload-button{
     position: absolute;
@@ -404,13 +483,7 @@ html{
     font-size: 20px;
 }
 
-#input-box{
-    position: absolute;
-    bottom: 130px;
-    width: calc(100%);
-    margin: 0 5px;
-    height: 380px;
-}
+
 
 #input-box-textarea{
     margin-left: -5px;
@@ -447,7 +520,8 @@ html{
 
 #footer{
     background: rgb(234, 234, 234);
-    position: absolute;
+    position: fixed;
+    width: 100%;
     left: 0;
     right: 0;
     bottom: 0;
@@ -593,3 +667,6 @@ html{
     95%  {stroke: #259a5d;}
   
   }
+
+
+@font-i-grey1:#787878;

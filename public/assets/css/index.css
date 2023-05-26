@@ -34,7 +34,6 @@ html {
   height: 100%;
   width: 100%;
   overflow: hidden;
-  z-index: 10;
   transform: scale(1.2);
   transition: all 0.5s ease-in-out;
   animation: background-flow 8s infinite;
@@ -46,7 +45,7 @@ html {
   padding: 0;
   width: 100%;
   height: 100%;
-  background: url('pic\\rainbow-2.png') no-repeat fixed;
+  background: url('../bg/rainbow-3.png') no-repeat fixed;
   /* background: rgb(77, 77, 77); */
   background-size: cover;
   box-sizing: border-box;
@@ -65,17 +64,17 @@ html {
 }
 #main-content-box {
   background: rgba(240, 240, 240, 0.671);
-  position: absolute;
+  position: fixed;
   top: 0;
   bottom: 0;
   left: 0;
   right: 0;
-  z-index: 10;
   height: 100%;
   margin: auto auto 60px auto;
   display: flex;
   transition: width 0.5s cubic-bezier(0.075, 0.82, 0.165, 1);
   width: 1200px;
+  flex: 1;
 }
 #data-list-box {
   background: #f0f0f0;
@@ -83,34 +82,121 @@ html {
   top: 0;
   bottom: 0;
   overflow-y: scroll;
-  width: 60%;
+  flex: 1;
 }
-#-box {
+#info-box {
+  position: absolute;
+  float: left;
+  width: 700px;
   height: 100%;
-  transition: opacity 0.6s cubic-bezier(0.075, 0.82, 0.165, 1);
+  z-index: 10;
   display: flex;
-  flex-grow: 1;
-  flex-direction: column;
 }
-.left-box {
+#info-box-favicon {
+  position: absolute;
+  left: calc(50% - 150px / 2);
+  right: 50%;
+  top: 50%;
+  bottom: 50%;
+  transition: opacity 0.5s cubic-bezier(0.075, 0.82, 0.165, 1);
+  opacity: 0.3;
+}
+#info-box-favicon:hover {
+  opacity: 1;
+}
+#info-box-favicon img {
+  width: 150px;
+  height: 150px;
+}
+#info-box-bottom {
+  font-size: 0.6em;
+  color: #787878;
+  text-align: center;
+  position: absolute;
+  bottom: 20px;
+  display: inline-block;
+  width: 700px;
+}
+#left-div {
+  display: flex;
   float: left;
   width: 700px;
   /* 根据您原来的样式，设置datalistbox的宽度 */
 }
-.right-box {
-  overflow: hidden;
+#right-div {
+  height: 100%;
+  flex: 1;
   display: flex;
-  flex-grow: 1;
+  /* 根据您原来的样式，设置datalistbox的宽度 */
+}
+.left-box {
+  /* 根据您原来的样式，设置datalistbox的宽度 */
+}
+.right-box {
+  flex-wrap: nowrap;
 }
 #login-box {
-  width: auto;
+  display: flex;
+  flex-direction: column-reverse;
+  position: relative;
+  flex: 1 1 calc(100% - 700px);
+  width: 100%;
   height: 100%;
   opacity: 1;
 }
+#login-input-box {
+  width: calc(100% - 2 * 20px);
+  margin: 0 20px;
+  bottom: 20px;
+  height: 230px;
+  background-color: #f3f3f3;
+  padding: 20px;
+  transition: height 0.3s cubic-bezier(0.075, 0.82, 0.165, 1);
+  transition: opacity 0.6s cubic-bezier(0.075, 0.82, 0.165, 1);
+}
+#login-selection-box {
+  position: relative;
+  width: calc(100% - 2 * 20px);
+  margin: 0 20px 20px 20px;
+  height: auto;
+  background-color: #f3f3f3;
+  padding: 20px;
+  color: #787878;
+  transition: height 0.3s cubic-bezier(0.075, 0.82, 0.165, 1);
+  transition: opacity 0.6s cubic-bezier(0.075, 0.82, 0.165, 1);
+  box-shadow: 0 2px 2px 0 rgba(0, 0, 0, 0), 0 3px 1px -2px rgba(0, 0, 0, 0.12), 0 1px 5px 0 rgba(0, 0, 0, 0.2);
+}
+#input-box {
+  position: absolute;
+  bottom: 130px;
+  width: 100%;
+  margin: 0 5px;
+  height: 380px;
+}
 #control-box {
+  flex: 0 0 0;
   width: auto;
   height: 100%;
   opacity: 0;
+}
+#login-button {
+  position: absolute;
+  right: 27px;
+  bottom: 30px;
+  height: 45px;
+  width: 45px;
+  border-radius: 100%;
+  border: 0ch;
+  transition: 0.12s ease-in-out;
+  user-select: none;
+}
+#login-button i {
+  position: absolute;
+  right: 13.5px;
+  bottom: 6px;
+  height: 25px;
+  color: #4d89c2;
+  font-size: 20px;
 }
 #data-list {
   position: absolute;
@@ -227,17 +313,6 @@ html {
   color: #4d89c2;
   font-size: 20px;
 }
-#login-input-box {
-  position: absolute;
-  bottom: 130px;
-  width: calc(100%);
-  margin: 0 5px;
-  height: 230px;
-  background-color: #f3f3f3;
-  padding: 20px;
-  transition: height 0.3s cubic-bezier(0.075, 0.82, 0.165, 1);
-  transition: opacity 0.6s cubic-bezier(0.075, 0.82, 0.165, 1);
-}
 #change-password-box {
   text-align: center;
   opacity: 0;
@@ -298,30 +373,6 @@ html {
   width: 100%;
   display: inline-block;
 }
-#copyroomtimelimit-input-field {
-  width: 25%;
-  left: 5%;
-  display: inline-block;
-}
-#login-button {
-  position: absolute;
-  right: 8px;
-  bottom: 100px;
-  height: 45px;
-  width: 45px;
-  border-radius: 100%;
-  border: 0ch;
-  transition: 0.12s ease-in-out;
-  user-select: none;
-}
-#login-button i {
-  position: absolute;
-  right: 13.5px;
-  bottom: 6px;
-  height: 25px;
-  color: #4d89c2;
-  font-size: 20px;
-}
 #upload-button {
   position: absolute;
   right: 8px;
@@ -340,13 +391,6 @@ html {
   height: 25px;
   color: #4d89c2;
   font-size: 20px;
-}
-#input-box {
-  position: absolute;
-  bottom: 130px;
-  width: calc(100%);
-  margin: 0 5px;
-  height: 380px;
 }
 #input-box-textarea {
   margin-left: -5px;
@@ -378,7 +422,8 @@ html {
 }
 #footer {
   background: #eaeaea;
-  position: absolute;
+  position: fixed;
+  width: 100%;
   left: 0;
   right: 0;
   bottom: 0;
