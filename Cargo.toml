@@ -8,7 +8,7 @@ slint = "1.16"
 global-hotkey = "0.6"
 clipboard-win = "5.4"
 arboard = "3.4"
-windows = { version = "0.58", features = ["Win32_UI_WindowsAndMessaging", "Win32_Foundation", "Win32_System_LibraryLoader", "Win32_Graphics_Dwm", "Win32_UI_Controls"] }
+windows = { version = "0.58", features = ["Win32_UI_WindowsAndMessaging", "Win32_Foundation", "Win32_System_LibraryLoader", "Win32_Graphics_Dwm", "Win32_UI_Controls", "Win32_Graphics_Gdi"] }
 raw-window-handle = "0.6.2"
 window-vibrancy = "0.7.1"
 

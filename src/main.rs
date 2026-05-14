@@ -54,6 +54,10 @@ mod window_drag {
 }
 
 fn main() {
+    // 设置语言环境避免 ICU4X 日语分词警告
+    std::env::set_var("LANG", "en_US.UTF-8");
+    std::env::set_var("LC_ALL", "en_US.UTF-8");
+    
     // 强制使用支持透明度的软件渲染或特定后端来确保窗口真正的透明
     std::env::set_var("SLINT_BACKEND", "winit-software");
     std::env::set_var("SLINT_STYLE", "fluent"); // 使用 fluent 风格
@@ -155,10 +159,22 @@ fn main() {
                     }
                 }
                 
-                window_vibrancy::apply_acrylic(WinHandle(raw_handle), None).ok();
+                window_vibrancy::apply_blur(WinHandle(raw_handle), None).ok();
                 // 尝试添加 clear background，有时候毛玻璃需要清除DWM背景或者Slint渲染器配置
                 let _ = window_vibrancy::clear_blur(WinHandle(raw_handle)); // clearing in case of conflict
                 window_vibrancy::apply_blur(WinHandle(raw_handle), Some((0, 0, 0, 0))).ok();
+                
+                // 添加窗口阴影 - 使用 DwmExtendFrameIntoClientArea
+                use windows::Win32::Graphics::Dwm::DwmExtendFrameIntoClientArea;
+                use windows::Win32::UI::Controls::MARGINS;
+                
+                let margins = MARGINS {
+                    cxLeftWidth: -1,
+                    cxRightWidth: -1,
+                    cyTopHeight: -1,
+                    cyBottomHeight: -1,
+                };
+                DwmExtendFrameIntoClientArea(hwnd, &margins).ok();
             }
         });
     }
