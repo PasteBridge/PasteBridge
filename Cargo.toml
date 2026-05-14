@@ -1,0 +1,23 @@
+[package]
+name = "paste_bridge"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+slint = "1.16"
+global-hotkey = "0.6"
+clipboard-win = "5.4"
+arboard = "3.4"
+windows = { version = "0.58", features = ["Win32_UI_WindowsAndMessaging", "Win32_Foundation", "Win32_System_LibraryLoader", "Win32_Graphics_Dwm", "Win32_UI_Controls"] }
+raw-window-handle = "0.6.2"
+window-vibrancy = "0.7.1"
+
+[build-dependencies]
+slint-build = "1.16"
+
+[profile.release]
+opt-level = "z"     # 优化大小
+lto = true          # 启用链接时优化
+codegen-units = 1   # 降低编译单元以最大化优化
+panic = "abort"     # 移除 panic 展开信息
+strip = true        # 去除符号信息，减小二进制体积，进而稍微降低内存常驻

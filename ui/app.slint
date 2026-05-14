@@ -1,0 +1,174 @@
+import { ScrollView } from "std-widgets.slint";
+
+export component AppWindow inherits Window {
+    title: "PasteBridge";
+    width: 250px;
+    height: 350px;
+    no-frame: true;
+    always-on-top: true;
+    background: rgba(0, 0, 0, 0.6);
+    
+
+    callback minimize-window();
+    callback hide-window();
+    callback start-drag();
+    callback new-clipboard-entry(text: string);
+
+    in property <[string]> clipboard-history: [
+        // ===== MOCK DATA (注释掉下面这些行来禁用) =====
+        // "Mock 1: Hello World",
+        // "Mock 2: Rust + Slint",
+        // "Mock 3: 测试中文",
+        // ===== MOCK DATA END =====
+    ];
+
+    // Background gradient layer
+    Rectangle {
+        background: @linear-gradient(122deg,rgba(30, 142, 212, 0) 0%, rgba(30, 142, 212, 0.1) 40%, rgba(143, 87, 199, 0.12) 75%, rgba(255, 201, 255, 0.18) 100%);
+    }
+
+    VerticalLayout {
+        padding: 0px;
+        spacing: 0px;
+
+        // Clipboard history list
+        ScrollView {
+            vertical-stretch: 1;
+            viewport-y: 0px; // For enabling animated smooth scrolling
+
+            VerticalLayout {
+                padding-left: 10px;
+                padding-right: 10px;
+                padding-top: 10px;
+                padding-bottom: 5px;
+                spacing: 8px;
+                alignment: start;
+
+                for item[index] in root.clipboard-history: Rectangle {
+                    height: 40px;
+                    background: rgba(61, 61, 61, 0.4);
+                    border-radius: 4px;
+                    border-width: 1px;
+                    border-color: rgba(255, 255, 255, 0.1);
+                    drop-shadow-color: rgba(0, 0, 0, 0.5);
+                    drop-shadow-offset-y: 2px;
+                    drop-shadow-blur: 4px;
+
+                    ta := TouchArea { }
+
+                    states [
+                        hovered when ta.has-hover: {
+                            background: rgba(90, 90, 90, 0.6);
+                        }
+                    ]
+
+                    HorizontalLayout {
+                        padding-left: 8px;
+                        padding-right: 8px;
+
+                        Text {
+                            text: item;
+                            color: #ffffff;
+                            font-size: 12px;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                    }
+                }
+            }
+        }
+
+        Rectangle {
+            drop-shadow-color: rgb(0, 0, 0);
+            drop-shadow-offset-y: 5px;
+            drop-shadow-blur: 10px;
+            height: 1px;
+            background: #4d4d4d;
+        }
+
+        // Bottom bar
+        Rectangle {
+            height: 40px;
+            background: transparent;
+
+            TouchArea {
+                width: 100%;
+                height: 100%;
+                pointer-event(ev) => {
+                    if (ev.button == PointerEventButton.left && ev.kind == PointerEventKind.down) {
+                        root.start-drag();
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                padding: 8px;
+                spacing: 8px;
+
+                Image {
+                    source: @image-url("favicon.png");
+                    width: 24px;
+                    height: 24px;
+                }
+
+                Image {
+                    source: @image-url("pin.png");
+                    width: 16px;
+                    height: 16px;
+                }
+
+                Rectangle {
+                    horizontal-stretch: 1;
+                }
+
+                Rectangle {
+                    width: 24px;
+                    height: 24px;
+                    background: #555555;
+                    border-radius: 4px;
+
+                    Text {
+                        text: "_";
+                        color: #ffffff;
+                        font-size: 14px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    TouchArea {
+                        width: 100%;
+                        height: 100%;
+                        clicked => {
+                            root.minimize-window();
+                        }
+                    }
+                }
+
+                Rectangle {
+                    width: 24px;
+                    height: 24px;
+                    background: #e81123;
+                    border-radius: 4px;
+
+                    Text {
+                        text: "X";
+                        color: #ffffff;
+                        font-size: 14px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    TouchArea {
+                        width: 100%;
+                        height: 100%;
+                        clicked => {
+                            root.hide-window();
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+

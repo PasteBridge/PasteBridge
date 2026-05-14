@@ -1,2 +1,6 @@
 pastebridge.code-workspace
 /test
+
+# Added by cargo
+
+/target

@@ -8,15 +8,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=0.7, minimum-scale=0.8, maximum-scale=2.0, user-scalable=yes"/>
     <meta http-equiv="content-type" content="text/html;charset=utf-8">
     <title>PasteBridge | 贴贴桥</title>
-    <link href="public/assets/css/index.css" rel="stylesheet" type="text/css"/>
-    <link href="public/assets/font-awesome/css/font-awesome.min.css" rel="stylesheet" type="text/css"/>
-    <link href="public/assets/favicon.ico" rel="shortcut icon">
+    <link href="assets/css/index.css" rel="stylesheet" type="text/css"/>
+    <link href="assets/font-awesome/css/font-awesome.min.css" rel="stylesheet" type="text/css"/>
+    <link href="assets/favicon.ico" rel="shortcut icon">
     <!-- Materialize:https://github.com/Dogfalo/materialize Code Copyright 2018 Materialize. Code released under the MIT license. -->
-    <link rel="stylesheet" href="public/assets/materialize/css/materialize.min.css">
-    <script src="public/assets/materialize/js/materialize.min.js"></script>
+    <link rel="stylesheet" href="assets/materialize/css/materialize.min.css">
+    <script src="assets/materialize/js/materialize.min.js"></script>
 
 
-    <link href="public/assets/js/index.js" type="text/javascript">
+    <link href="assets/js/index.js" type="text/javascript">
 
 
 </head>
@@ -38,8 +38,8 @@
             </div>
             <div id="info-box">
                 <div id="info-box-favicon">
-                    <img id="favicon-logo" src="public/assets/favicon.png">
-                    <img id="favicon-text" src="/public/">
+                    <img id="favicon-logo" src="assets/favicon.png">
+                    <img id="favicon-text" src="/">
 
                 </div>
                 <div id="info-box-bottom">
