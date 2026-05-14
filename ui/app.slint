@@ -14,12 +14,20 @@ export component AppWindow inherits Window {
     callback start-drag();
     callback new-clipboard-entry(text: string);
 
+    // in property <[string]> clipboard-history;
     in property <[string]> clipboard-history: [
-        // ===== MOCK DATA (注释掉下面这些行来禁用) =====
-        // "Mock 1: Hello World",
-        // "Mock 2: Rust + Slint",
-        // "Mock 3: 测试中文",
-        // ===== MOCK DATA END =====
+        "Mock 1: Hello World",
+        "Mock 2: Rust + Slint",
+        "Mock 3: 测试中文",
+        "Mock 1: Hello World",
+        "Mock 2: Rust + Slint",
+        "Mock 3: 测试中文",
+        "Mock 1: Hello World",
+        "Mock 2: Rust + Slint",
+        "Mock 3: 测试中文",
+        "Mock 1: Hello World",
+        "Mock 2: Rust + Slint",
+        "Mock 3: 测试中文",
     ];
 
     // Background gradient layer
