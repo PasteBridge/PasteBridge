@@ -1,52 +1,6 @@
-![Banner](public/assets/pastebridge-banner.png)
+# 纯净复制 PureCopy
+轻量化的网络剪贴板
 
+使用了 [Materialize](https://github.com/Dogfalo/materialize) 与 [FontAwesome4.7.0](https://github.com/FortAwesome/Font-Awesome)
 
-<div align="center"><em><p>📋 A cross-platform clipboard, Powered by PHP. 📋</p></em></div>
-
-***
-
-English | [中文](./README-CN.md)
-
-## Features
-
-- [x] Cross-platform clipboard to save your time⏰
-  - [x] Web-interface (built-in) (this respository)
-  - [ ] Android App
-  - [ ] iOS App
-  - [ ] Windows App
-- [x] Native Copy&Paste function support📋
-- [x] Encrypted Transmitting🔒
-- [x] An offcial online service🌐
-
-## Offcial Service
-[https://pastebridge.com](https://pastebridge.com)
-
-
-## Installation
-Requirements:
-- PHP 7+
-- Database SoftWare (AnyOne)
-  - MySQL 5.5.3 or higher
-  - SQLite 3.7.11 or higher
-  - PostgreSQL 9.1 or higher
-
-## Documents
-[https://docs.pastebridge.com](https://docs.pastebridge.com)
-
-## Contributing
-
-## Licensing
-
-Based On GPT-3.0 LISENCE
-
-### Used projects
-
-Font Awesome
-Less
-
-
-## Want to say
-
-Basically it's just a project start with beautiful UI, then functions, cuz' I'm always confused with transferring files between devices, then I made this tool. Wish you enjoy.
-
-
+该项目已迁移至 [PasteBridge](https://https://github.com/PasteBridge/PasteBridge)
