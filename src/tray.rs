@@ -39,13 +39,15 @@ pub fn setup_tray() -> TrayHandles {
     }
 }
 
-pub fn start_tray_event_loop(
+pub fn start_tray_event_loop<F>(
     show_id: String,
     quit_id: String,
     hotkey_id: u32,
-) {
+    toggle_window: F,
+) where
+    F: Fn() + Send + Sync + 'static,
+{
     use global_hotkey::{GlobalHotKeyEvent, HotKeyState};
-    use crate::window_effects::APP_HWND;
 
     std::thread::spawn(move || {
         let receiver = GlobalHotKeyEvent::receiver();
@@ -55,21 +57,7 @@ pub fn start_tray_event_loop(
             // 处理热键事件
             if let Ok(event) = receiver.try_recv() {
                 if event.id == hotkey_id && event.state == HotKeyState::Pressed {
-                    let hwnd_isize = APP_HWND.load(Ordering::SeqCst);
-                    if hwnd_isize != 0 {
-                        let is_visible = IS_VISIBLE.load(Ordering::SeqCst);
-                        let hwnd = windows::Win32::Foundation::HWND(hwnd_isize as *mut std::ffi::c_void);
-                        unsafe {
-                            if is_visible {
-                                windows::Win32::UI::WindowsAndMessaging::ShowWindow(hwnd, windows::Win32::UI::WindowsAndMessaging::SW_HIDE);
-                                IS_VISIBLE.store(false, Ordering::SeqCst);
-                            } else {
-                                windows::Win32::UI::WindowsAndMessaging::ShowWindow(hwnd, windows::Win32::UI::WindowsAndMessaging::SW_SHOW);
-                                windows::Win32::UI::WindowsAndMessaging::SetForegroundWindow(hwnd);
-                                IS_VISIBLE.store(true, Ordering::SeqCst);
-                            }
-                        }
-                    }
+                    toggle_window();
                 }
             }
 
@@ -78,21 +66,7 @@ pub fn start_tray_event_loop(
                 if event.id.as_ref() == quit_id {
                     std::process::exit(0);
                 } else if event.id.as_ref() == show_id {
-                    let hwnd_isize = APP_HWND.load(Ordering::SeqCst);
-                    if hwnd_isize != 0 {
-                        let is_visible = IS_VISIBLE.load(Ordering::SeqCst);
-                        let hwnd = windows::Win32::Foundation::HWND(hwnd_isize as *mut std::ffi::c_void);
-                        unsafe {
-                            if is_visible {
-                                windows::Win32::UI::WindowsAndMessaging::ShowWindow(hwnd, windows::Win32::UI::WindowsAndMessaging::SW_HIDE);
-                                IS_VISIBLE.store(false, Ordering::SeqCst);
-                            } else {
-                                windows::Win32::UI::WindowsAndMessaging::ShowWindow(hwnd, windows::Win32::UI::WindowsAndMessaging::SW_SHOW);
-                                windows::Win32::UI::WindowsAndMessaging::SetForegroundWindow(hwnd);
-                                IS_VISIBLE.store(true, Ordering::SeqCst);
-                            }
-                        }
-                    }
+                    toggle_window();
                 }
             }
             std::thread::sleep(std::time::Duration::from_millis(50));
