@@ -23,11 +23,6 @@ pub fn handle_copy(state: &Arc<AppState>, body: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
-/// Handle POST /clipboard/clear
-pub fn handle_clear_history(state: &Arc<AppState>) -> Result<usize, String> {
-    Ok(state.clear_history())
-}
-
 /// Handle POST /window/show
 pub fn handle_window_show(state: &Arc<AppState>) -> Result<(), String> {
     state.set_window_visible(true);
@@ -44,4 +39,10 @@ pub fn handle_window_hide(state: &Arc<AppState>) -> Result<(), String> {
 pub fn handle_get_visible(state: &Arc<AppState>) -> Vec<u8> {
     let visible = state.is_window_visible();
     serde_json::to_vec(&visible).unwrap_or_default()
+}
+
+/// Handle POST /clipboard/clear
+pub fn handle_clear(state: &Arc<AppState>) -> Result<(), String> {
+    state.clear_history();
+    Ok(())
 }

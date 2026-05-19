@@ -249,6 +249,36 @@ export component AppWindow inherits Window {
                 Rectangle {
                     width: 24px;
                     height: 24px;
+                    background: transparent;
+                }
+
+                // Clear button
+                Rectangle {
+                    width: 24px;
+                    height: 24px;
+                    background: #555555;
+                    border-radius: 4px;
+
+                    Text {
+                        text: "🗑";
+                        color: #ffffff;
+                        font-size: 12px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    TouchArea {
+                        width: 100%;
+                        height: 100%;
+                        clicked => {
+                            root.clear-history();
+                        }
+                    }
+                }
+
+                Rectangle {
+                    width: 24px;
+                    height: 24px;
                     background: #555555;
                     border-radius: 4px;
 
@@ -265,29 +295,6 @@ export component AppWindow inherits Window {
                         height: 100%;
                         clicked => {
                             root.minimize-window();
-                        }
-                    }
-                }
-
-                Rectangle {
-                    width: 24px;
-                    height: 24px;
-                    background: #808080;
-                    border-radius: 4px;
-
-                    Text {
-                        text: "🗑";
-                        color: #ffffff;
-                        font-size: 12px;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
-                    }
-
-                    TouchArea {
-                        width: 100%;
-                        height: 100%;
-                        clicked => {
-                            root.clear-history();
                         }
                     }
                 }

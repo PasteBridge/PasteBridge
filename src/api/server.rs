@@ -74,12 +74,17 @@ fn handle_request(
         }
 
         ("POST", "/clipboard/copy") => {
-            // Body is not read here as we don't have the request object
-            // This is a limitation - body reading would need to be done before
+            let body = routes::handle_copy(state, &[]);
+            match body {
+                Ok(_) => Response::from_string("OK"),
+                Err(e) => Response::from_string(format!("Error: {}", e))
+                    .with_status_code(400),
+            }
+        }
+
+        ("POST", "/clipboard/clear") => {
+            routes::handle_clear(state);
             Response::from_string("OK")
-                .with_header(
-                    tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"text/plain"[..]).unwrap()
-                )
         }
 
         ("GET", "/window/visible") => {
@@ -100,13 +105,6 @@ fn handle_request(
         ("POST", "/window/hide") => {
             match routes::handle_window_hide(state) {
                 Ok(_) => Response::from_string("OK"),
-                Err(e) => Response::from_string(format!("Error: {}", e)).with_status_code(400),
-            }
-        }
-
-        ("POST", "/clipboard/clear") => {
-            match routes::handle_clear_history(state) {
-                Ok(count) => Response::from_string(format!("Cleared {} items", count)),
                 Err(e) => Response::from_string(format!("Error: {}", e)).with_status_code(400),
             }
         }

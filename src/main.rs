@@ -61,6 +61,21 @@ fn main() {
     let app = AppWindow::new().unwrap();
     let app_weak = app.as_weak();
 
+    // Load clipboard history from database on startup
+    let state_for_init = state.clone();
+    let app_for_init = app.as_weak();
+    slint::invoke_from_event_loop(move || {
+        if let Some(w) = app_for_init.upgrade() {
+            let history = state_for_init.get_history();
+            let items: Vec<String> = history.iter()
+                .filter_map(|item| item.content_text.clone())
+                .collect();
+            let items: Vec<slint::SharedString> = items.into_iter().map(|s| s.into()).collect();
+            let model = std::rc::Rc::new(slint::VecModel::from(items));
+            w.set_clipboard_history(model.into());
+        }
+    }).ok();
+
     // Start clipboard monitoring - update UI when clipboard changes
     let app_weak_clone = app_weak.clone();
     let state_for_clipboard = state.clone();
@@ -187,26 +202,18 @@ fn main() {
     });
 
     // Clear history callback
-    let weak_clear = app_weak.clone();
     let state_for_clear = state.clone();
+    let app_for_clear = app.as_weak();
     app.on_clear_history(move || {
-        let cleared = state_for_clear.clear_history();
-        eprintln!("Cleared {} items from history", cleared);
-        
-        // Update UI
-        let weak = weak_clear.clone();
-        let state = state_for_clear.clone();
+        state_for_clear.clear_history();
+        let app_clone = app_for_clear.clone();
         let _ = slint::invoke_from_event_loop(move || {
-            if let Some(w) = weak.upgrade() {
-                let history = state.get_history();
-                let items: Vec<String> = history.iter()
-                    .filter_map(|item| item.content_text.clone())
-                    .collect();
-                let items: Vec<slint::SharedString> = items.into_iter().map(|s| s.into()).collect();
-                let model = std::rc::Rc::new(slint::VecModel::from(items));
+            if let Some(w) = app_clone.upgrade() {
+                let model = std::rc::Rc::new(slint::VecModel::<slint::SharedString>::from(vec![]));
                 w.set_clipboard_history(model.into());
             }
         });
+        eprintln!("Clipboard history cleared");
     });
 
     let weak3 = app_weak.clone();
