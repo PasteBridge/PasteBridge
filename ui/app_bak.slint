@@ -6,38 +6,16 @@ export component AppWindow inherits Window {
     height: 396px;
     no-frame: true;
     always-on-top: true;
-    background:transparent;
+    background: rgba(0, 0, 0, 0.84);
     
 
     callback minimize-window();
     callback hide-window();
     callback start-drag();
     callback new-clipboard-entry(text: string);
-    callback copy-item(text: string);
 
     in property <[string]> clipboard-history;
     in property <string> placeholder-text;
-
-    // Copied 弹出提示
-    popup := PopupWindow {
-        x: 0px;
-        y: -48px;
-        width: 80px;
-        height: 32px;
-
-        Rectangle {
-            background: #1a1a1a;
-            border-radius: 6px;
-
-            Text {
-                text: "Copied";
-                color: #ffffff;
-                font-size: 13px;
-                horizontal-alignment: center;
-                vertical-alignment: center;
-            }
-        }
-    }
     // in property <[string]> clipboard-history: [
     //     "Mock 1: Hello World",
     //     "Mock 2: Rust + Slint",
@@ -54,8 +32,8 @@ export component AppWindow inherits Window {
     // ];
 
     // White border and shadow container
+    // Moved background to window base to reduce overdraw memory overhead
     Rectangle {
-        background: rgba(0, 0, 0, 0.84);
         border-width: 1px;
         border-color: rgba(255, 255, 255, 0.1);
     }
@@ -70,7 +48,6 @@ export component AppWindow inherits Window {
         padding: 0px;
         spacing: 0px;
 
-        //Main content area
         VerticalLayout {
             padding: 0px;
             spacing: 0px;
@@ -131,22 +108,15 @@ export component AppWindow inherits Window {
                         border-radius: 0px;
                         border-width: 0px;
                         border-color: rgba(255, 255, 255, 0.1);
-                        drop-shadow-color: rgba(0, 0, 0, 0.5);
-                        drop-shadow-offset-y: 2px;
-                        drop-shadow-blur: 4px;
+                        // drop-shadow is disabled for performance
+                        // drop-shadow-color: rgba(0, 0, 0, 0.5);
+                        // drop-shadow-offset-y: 2px;
+                        // drop-shadow-blur: 4px;
 
-                        animate background { duration: 100ms; easing: ease-in; }
+                        // Animation disabled for performance
+                        // animate background { duration: 100ms; easing: ease-in; }
 
-                        ta := TouchArea {
-                            clicked => {
-                                root.copy-item(item);
-                                popup.show();
-                                // 1秒后自动关闭
-                                if (true) {
-                                    popup.close();
-                                }
-                            }
-                        }
+                        ta := TouchArea { }
 
                         states [
                             hovered when ta.has-hover: {
@@ -164,8 +134,8 @@ export component AppWindow inherits Window {
                                 text: item;
                                 color: #ffffff;
                                 font-size: 12px;
-                                vertical-alignment: top;
-                                overflow: clip;
+                                vertical-alignment: center;
+                                overflow: elide;
                                 vertical-stretch: 0;
                                 horizontal-stretch: 0;
                             }
@@ -174,20 +144,18 @@ export component AppWindow inherits Window {
                 }
             }
 
-            //分割条
             Rectangle {
-                drop-shadow-color: rgb(0, 0, 0);
-                drop-shadow-offset-y: 5px;
-                drop-shadow-blur: 10px;
+                // Remove expensive shadow, replace with a subtle gradient effect for performance
                 height: 1px;
                 background: #4d4d4d;
+            }
+            Rectangle {
+                height: 5px;
+                background: @linear-gradient(180deg, rgba(0, 0, 0, 0.5) 0%, rgba(0, 0, 0, 0) 100%);
             }
 
             // Bottom bar - Search box
             Rectangle {
-                drop-shadow-color: rgba(0, 0, 0, 0.3);
-                drop-shadow-offset-y: -10px;
-                drop-shadow-blur: 20px;
                 height: 40px;
                 background: rgba(0, 0, 0, 0.1);
 

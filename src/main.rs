@@ -14,6 +14,9 @@ mod window_effects;
 mod tray;
 
 use global_hotkey::{GlobalHotKeyManager, hotkey::{HotKey, Modifiers, Code}};
+use windows::Win32::UI::WindowsAndMessaging::GetSystemMetrics;
+use windows::Win32::UI::WindowsAndMessaging::SM_CXSCREEN;
+use windows::Win32::UI::WindowsAndMessaging::SM_CYSCREEN;
 
 #[cfg(target_os = "windows")]
 mod window_util {
@@ -36,18 +39,13 @@ mod window_util {
 
 fn main() {
     // 尝试使用默认后端（通常支持硬件加速），如果不行再回退到软件渲染
-    // std::env::set_var("SLINT_BACKEND", "winit-software");
+    std::env::set_var("SLINT_BACKEND", "winit-software");
     std::env::set_var("SLINT_STYLE", "fluent");
 
     eprintln!("Starting PasteBridge...");
 
     let app = AppWindow::new().unwrap();
     let app_weak = app.as_weak();
-
-    // 保持一个不可见的窗口永远显示，防止 slint 认为没有可见窗口而自动退出事件循环
-    let dummy = DummyWindow::new().unwrap();
-    let _ = dummy.window().set_position(slint::PhysicalPosition::new(-10000, -10000));
-    dummy.show().unwrap();
 
     // 启动剪贴板监控
     clipboard::start_clipboard_monitor(app_weak.clone(), 20);
@@ -89,18 +87,35 @@ fn main() {
                     use slint::ComponentHandle;
                     let is_visible = tray::IS_VISIBLE.load(std::sync::atomic::Ordering::SeqCst);
                     if is_visible {
-                        let _ = app.window().hide();
+                        // 淡出 → 再移出屏幕
+                        let hwnd_isize = window_effects::APP_HWND.load(std::sync::atomic::Ordering::SeqCst);
+                        if hwnd_isize != 0 {
+                            let hwnd = windows::Win32::Foundation::HWND(hwnd_isize as *mut std::ffi::c_void);
+                            window_effects::fade_out(hwnd);
+                        }
+                        let _ = app.window().set_position(slint::PhysicalPosition::new(-10000, -10000));
                         tray::IS_VISIBLE.store(false, std::sync::atomic::Ordering::SeqCst);
                     } else {
-                        let _ = app.window().show();
+                        // 窗口中心点位于屏幕高度的 0.618 处，水平居中
+                        let win_w = 280i32;
+                        let win_h = 396i32;
+                        let screen_w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
+                        let screen_h = unsafe { GetSystemMetrics(SM_CYSCREEN) };
+                        let x = (screen_w - win_w) / 2;
+                        // 窗口高度的 0.382 处对齐屏幕高度的 0.618
+                        let y = (((screen_h as f64) * 0.618) - (win_h as f64) * 0.233) as i32;
+
+                        let _ = app.window().set_position(slint::PhysicalPosition::new(x, y));
                         tray::IS_VISIBLE.store(true, std::sync::atomic::Ordering::SeqCst);
                         
                         let hwnd_isize = window_effects::APP_HWND.load(std::sync::atomic::Ordering::SeqCst);
                         if hwnd_isize != 0 {
                             let hwnd = windows::Win32::Foundation::HWND(hwnd_isize as *mut std::ffi::c_void);
+                            // 先 SetForegroundWindow，再异步淡入，避免阻塞事件循环
                             unsafe {
                                 let _ = windows::Win32::UI::WindowsAndMessaging::SetForegroundWindow(hwnd);
                             }
+                            window_effects::fade_in(hwnd);
                         }
                     }
                 }
@@ -127,16 +142,33 @@ fn main() {
     app.on_hide_window(move || {
         if let Some(app) = weak2.upgrade() {
             use slint::ComponentHandle;
-            let _ = app.window().hide();
+            let hwnd_isize = window_effects::APP_HWND.load(std::sync::atomic::Ordering::SeqCst);
+            if hwnd_isize != 0 {
+                let hwnd = windows::Win32::Foundation::HWND(hwnd_isize as *mut std::ffi::c_void);
+                window_effects::fade_out(hwnd);
+            }
+            let _ = app.window().set_position(slint::PhysicalPosition::new(-10000, -10000));
             tray::IS_VISIBLE.store(false, std::sync::atomic::Ordering::SeqCst);
         }
+    });
+
+    // 复制条目回调
+    app.on_copy_item(move |text: slint::SharedString| {
+        let text_owned: String = text.into();
+        clipboard::set_clipboard_text(text_owned.clone());
+        eprintln!("Copied to clipboard: {}", text_owned.chars().take(20).collect::<String>());
     });
 
     let weak3 = app_weak.clone();
     app.on_minimize_window(move || {
         if let Some(app) = weak3.upgrade() {
             use slint::ComponentHandle;
-            let _ = app.window().hide();
+            let hwnd_isize = window_effects::APP_HWND.load(std::sync::atomic::Ordering::SeqCst);
+            if hwnd_isize != 0 {
+                let hwnd = windows::Win32::Foundation::HWND(hwnd_isize as *mut std::ffi::c_void);
+                window_effects::fade_out(hwnd);
+            }
+            let _ = app.window().set_position(slint::PhysicalPosition::new(-10000, -10000));
             tray::IS_VISIBLE.store(false, std::sync::atomic::Ordering::SeqCst);
         }
     });

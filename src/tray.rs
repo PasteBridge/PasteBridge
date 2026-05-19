@@ -1,5 +1,5 @@
-use std::sync::atomic::{AtomicBool, Ordering};
-use tray_icon::{TrayIconBuilder, menu::{Menu, MenuItem, MenuEvent}};
+use std::sync::atomic::AtomicBool;
+use tray_icon::{TrayIconBuilder, menu::{MenuItem, MenuEvent}};
 
 pub static IS_VISIBLE: AtomicBool = AtomicBool::new(true);
 

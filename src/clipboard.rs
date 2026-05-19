@@ -26,6 +26,15 @@ impl ClipboardHistory {
     }
 }
 
+/// 将文本写入系统剪贴板（text 必须是_owned 的，即 clone 或 String）
+pub fn set_clipboard_text(text: String) {
+    thread::spawn(move || {
+        if let Ok(mut clipboard) = arboard::Clipboard::new() {
+            let _ = clipboard.set_text(text);
+        }
+    });
+}
+
 pub fn start_clipboard_monitor(
     clipboard_weak: slint::Weak<AppWindow>,
     max_size: usize,

@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-slint = "=1.15.0"
-global-hotkey = "0.5"
+slint = "1.16"
+global-hotkey = "0.6"
 clipboard-win = "5.4"
 arboard = "3.4"
 windows = { version = "0.58", features = ["Win32_UI_WindowsAndMessaging", "Win32_Foundation", "Win32_System_LibraryLoader", "Win32_Graphics_Dwm", "Win32_UI_Controls", "Win32_Graphics_Gdi"] }
@@ -14,7 +14,7 @@ window-vibrancy = "0.7.1"
 tray-icon = "0.14"
 
 [build-dependencies]
-slint-build = "=1.15.0"
+slint-build = "1.16"
 
 [profile.release]
 opt-level = "z"     # 优化大小
