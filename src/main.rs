@@ -49,8 +49,13 @@ fn main() {
 
     eprintln!("Starting PasteBridge...");
 
-    // Create app state
-    let state = core::state::AppState::new(20);
+    // Get app data directory
+    let app_data_dir = std::env::var("LOCALAPPDATA")
+        .map(|p| std::path::PathBuf::from(p).join("PasteBridge"))
+        .unwrap_or_else(|_| std::path::PathBuf::from("."));
+
+    // Create app state with database
+    let state = core::state::AppState::new(&app_data_dir, 100);
 
     // Create and setup app window
     let app = AppWindow::new().unwrap();
@@ -66,7 +71,10 @@ fn main() {
         let _ = slint::invoke_from_event_loop(move || {
             if let Some(w) = weak.upgrade() {
                 let history = state.get_history();
-                let items: Vec<slint::SharedString> = history.iter().map(|s| s.clone().into()).collect();
+                let items: Vec<String> = history.iter()
+                    .filter_map(|item| item.content_text.clone())
+                    .collect();
+                let items: Vec<slint::SharedString> = items.into_iter().map(|s| s.into()).collect();
                 let model = std::rc::Rc::new(slint::VecModel::from(items));
                 w.set_clipboard_history(model.into());
             }
