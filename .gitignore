@@ -4,3 +4,5 @@ pastebridge.code-workspace
 # Added by cargo
 
 /target
+.refact/buddy/memory_ops.jsonl
+.refact/buddy/state.json

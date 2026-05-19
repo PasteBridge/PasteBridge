@@ -1,0 +1,37 @@
+src/
+├── main.rs                    # 平台入口
+├── lib.rs                     # 库入口
+│
+├── core/                      # 核心业务逻辑（跨平台）
+│   ├── mod.rs
+│   ├── clipboard.rs           # 剪贴板监控（跨平台）
+│   ├── hotkey.rs             # 热键管理（跨平台抽象）
+│   ├── tray.rs               # 托盘（跨平台抽象）
+│   ├── window.rs             # 窗口（跨平台抽象）
+│   └── transfer.rs           # 文件传输（跨平台） 先不用写
+│
+├── api/                       # API 层
+│   ├── mod.rs
+│   ├── server.rs
+│   └── routes.rs
+│
+├── web/                       # Web 服务器 先新建文件夹 不用做
+│   ├── mod.rs
+│   ├── static.rs
+│   └── upload.rs
+│
+├── ui/                        # UI 层（Slint）
+    |---app.slint
+│   ├── mod.rs
+│   └── callbacks.rs
+│
+├── platform/                   # 平台特定实现
+│   ├── mod.rs
+│   ├── trait.rs              # 平台 trait 定义
+│   ├── windows/
+│   │   ├── mod.rs
+│   │   ├── window.rs         # Windows 窗口实现
+│   │   ├── hotkey.rs         # Windows 热键
+│   │   ├── tray.rs           # Windows 托盘
+│   │   └── clipboard.rs      # Windows 剪贴板
+│   │

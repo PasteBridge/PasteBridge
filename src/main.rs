@@ -9,14 +9,19 @@ slint::slint! {
     }
 }
 
-mod clipboard;
-mod window_effects;
-mod tray;
+// Re-use existing modules
+pub mod clipboard;
+pub mod window_effects;
+pub mod tray;
+
+use std::sync::atomic::Ordering;
 
 use global_hotkey::{GlobalHotKeyManager, hotkey::{HotKey, Modifiers, Code}};
-use windows::Win32::UI::WindowsAndMessaging::GetSystemMetrics;
-use windows::Win32::UI::WindowsAndMessaging::SM_CXSCREEN;
-use windows::Win32::UI::WindowsAndMessaging::SM_CYSCREEN;
+use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
+
+// Re-export modules
+mod api;
+mod core;
 
 #[cfg(target_os = "windows")]
 mod window_util {
@@ -38,45 +43,61 @@ mod window_util {
 }
 
 fn main() {
-    // 尝试使用默认后端（通常支持硬件加速），如果不行再回退到软件渲染
+    // Set backend and style
     std::env::set_var("SLINT_BACKEND", "winit-software");
     std::env::set_var("SLINT_STYLE", "fluent");
 
     eprintln!("Starting PasteBridge...");
 
+    // Create app state
+    let state = core::state::AppState::new(20);
+
+    // Create and setup app window
     let app = AppWindow::new().unwrap();
     let app_weak = app.as_weak();
 
-    // 启动剪贴板监控
-    clipboard::start_clipboard_monitor(app_weak.clone(), 20);
+    // Start clipboard monitoring - update UI when clipboard changes
+    let app_weak_clone = app_weak.clone();
+    let state_for_clipboard = state.clone();
+    let state_for_ui = state.clone();
+    core::clipboard::start_clipboard_monitor(state_for_clipboard, move |_text| {
+        let weak = app_weak_clone.clone();
+        let state = state_for_ui.clone();
+        let _ = slint::invoke_from_event_loop(move || {
+            if let Some(w) = weak.upgrade() {
+                let history = state.get_history();
+                let items: Vec<slint::SharedString> = history.iter().map(|s| s.clone().into()).collect();
+                let model = std::rc::Rc::new(slint::VecModel::from(items));
+                w.set_clipboard_history(model.into());
+            }
+        });
+    });
 
-    // 应用窗口效果（毛玻璃、阴影）
+    // Apply window effects (blur, shadow)
     #[cfg(target_os = "windows")]
     window_effects::apply_window_effects();
 
-    // 设置全局热键 (Ctrl + Alt + V)
+    // Setup global hotkey (Ctrl+Alt+V, fallback Ctrl+Alt+B)
     let manager = GlobalHotKeyManager::new().unwrap();
     let hotkey = HotKey::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyV);
     let hotkey_id = match manager.register(hotkey) {
         Ok(_) => hotkey.id(),
         Err(e) => {
-            eprintln!("热键 Ctrl+Alt+V 已被占用，尝试使用 Ctrl+Alt+B... ({e})");
-            // 尝试备选热键 Ctrl+Alt+B
+            eprintln!("Hotkey Ctrl+Alt+V occupied, trying Ctrl+Alt+B... ({})", e);
             let backup_hotkey = HotKey::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyB);
             match manager.register(backup_hotkey) {
                 Ok(_) => backup_hotkey.id(),
                 Err(e2) => {
-                    eprintln!("备选热键也失败: {e2}");
-                    tray::IS_VISIBLE.store(false, std::sync::atomic::Ordering::SeqCst);
+                    eprintln!("Backup hotkey also failed: {}", e2);
+                    tray::IS_VISIBLE.store(false, Ordering::SeqCst);
                     std::process::exit(1);
                 }
             }
         }
     };
 
-    // 设置托盘图标
+    // Setup tray icon
     let handles = tray::setup_tray();
-    // 保持 tray_icon 存活，否则图标会消失
     let _tray_icon = handles.tray_icon;
     let weak_for_tray = app_weak.clone();
     tray::start_tray_event_loop(handles.show_id, handles.quit_id, hotkey_id, move || {
@@ -85,33 +106,31 @@ fn main() {
             move || {
                 if let Some(app) = weak.upgrade() {
                     use slint::ComponentHandle;
-                    let is_visible = tray::IS_VISIBLE.load(std::sync::atomic::Ordering::SeqCst);
+                    let is_visible = tray::IS_VISIBLE.load(Ordering::SeqCst);
                     if is_visible {
-                        // 淡出 → 再移出屏幕
-                        let hwnd_isize = window_effects::APP_HWND.load(std::sync::atomic::Ordering::SeqCst);
+                        // Hide window
+                        let hwnd_isize = window_effects::APP_HWND.load(Ordering::SeqCst);
                         if hwnd_isize != 0 {
                             let hwnd = windows::Win32::Foundation::HWND(hwnd_isize as *mut std::ffi::c_void);
                             window_effects::fade_out(hwnd);
                         }
                         let _ = app.window().set_position(slint::PhysicalPosition::new(-10000, -10000));
-                        tray::IS_VISIBLE.store(false, std::sync::atomic::Ordering::SeqCst);
+                        tray::IS_VISIBLE.store(false, Ordering::SeqCst);
                     } else {
-                        // 窗口中心点位于屏幕高度的 0.618 处，水平居中
+                        // Show window at golden ratio position
                         let win_w = 280i32;
                         let win_h = 396i32;
                         let screen_w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
                         let screen_h = unsafe { GetSystemMetrics(SM_CYSCREEN) };
                         let x = (screen_w - win_w) / 2;
-                        // 窗口高度的 0.382 处对齐屏幕高度的 0.618
                         let y = (((screen_h as f64) * 0.618) - (win_h as f64) * 0.233) as i32;
 
                         let _ = app.window().set_position(slint::PhysicalPosition::new(x, y));
-                        tray::IS_VISIBLE.store(true, std::sync::atomic::Ordering::SeqCst);
-                        
-                        let hwnd_isize = window_effects::APP_HWND.load(std::sync::atomic::Ordering::SeqCst);
+                        tray::IS_VISIBLE.store(true, Ordering::SeqCst);
+
+                        let hwnd_isize = window_effects::APP_HWND.load(Ordering::SeqCst);
                         if hwnd_isize != 0 {
                             let hwnd = windows::Win32::Foundation::HWND(hwnd_isize as *mut std::ffi::c_void);
-                            // 先 SetForegroundWindow，再异步淡入，避免阻塞事件循环
                             unsafe {
                                 let _ = windows::Win32::UI::WindowsAndMessaging::SetForegroundWindow(hwnd);
                             }
@@ -123,7 +142,7 @@ fn main() {
         });
     });
 
-    // 设置窗口操作回调
+    // Setup window callbacks
     let weak4 = app_weak.clone();
     app.on_start_drag(move || {
         if let Some(_w) = weak4.upgrade() {
@@ -142,20 +161,20 @@ fn main() {
     app.on_hide_window(move || {
         if let Some(app) = weak2.upgrade() {
             use slint::ComponentHandle;
-            let hwnd_isize = window_effects::APP_HWND.load(std::sync::atomic::Ordering::SeqCst);
+            let hwnd_isize = window_effects::APP_HWND.load(Ordering::SeqCst);
             if hwnd_isize != 0 {
                 let hwnd = windows::Win32::Foundation::HWND(hwnd_isize as *mut std::ffi::c_void);
                 window_effects::fade_out(hwnd);
             }
             let _ = app.window().set_position(slint::PhysicalPosition::new(-10000, -10000));
-            tray::IS_VISIBLE.store(false, std::sync::atomic::Ordering::SeqCst);
+            tray::IS_VISIBLE.store(false, Ordering::SeqCst);
         }
     });
 
-    // 复制条目回调
+    // Copy item callback
     app.on_copy_item(move |text: slint::SharedString| {
         let text_owned: String = text.into();
-        clipboard::set_clipboard_text(text_owned.clone());
+        core::clipboard::set_clipboard_text(text_owned.clone());
         eprintln!("Copied to clipboard: {}", text_owned.chars().take(20).collect::<String>());
     });
 
@@ -163,13 +182,22 @@ fn main() {
     app.on_minimize_window(move || {
         if let Some(app) = weak3.upgrade() {
             use slint::ComponentHandle;
-            let hwnd_isize = window_effects::APP_HWND.load(std::sync::atomic::Ordering::SeqCst);
+            let hwnd_isize = window_effects::APP_HWND.load(Ordering::SeqCst);
             if hwnd_isize != 0 {
                 let hwnd = windows::Win32::Foundation::HWND(hwnd_isize as *mut std::ffi::c_void);
                 window_effects::fade_out(hwnd);
             }
             let _ = app.window().set_position(slint::PhysicalPosition::new(-10000, -10000));
-            tray::IS_VISIBLE.store(false, std::sync::atomic::Ordering::SeqCst);
+            tray::IS_VISIBLE.store(false, Ordering::SeqCst);
+        }
+    });
+
+    // Start API server (runs on 18792)
+    let api_state = state.clone();
+    std::thread::spawn(move || {
+        let mut server = api::ApiServer::new(18792);
+        if let Err(e) = server.start(api_state) {
+            eprintln!("[api] Server error: {}", e);
         }
     });
 
