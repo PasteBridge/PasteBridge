@@ -128,7 +128,6 @@ export component AppWindow inherits Window {
 
                     for item[index] in root.clipboard-history: Rectangle {
                         height: 52px;
-                        opacity: 0;
                         background: rgba(61, 61, 61, 0.4);
                         border-radius: 0px;
                         border-width: 0px;
@@ -137,10 +136,6 @@ export component AppWindow inherits Window {
                         drop-shadow-offset-y: 2px;
                         drop-shadow-blur: 4px;
 
-                        animate opacity {
-                            duration: 100ms;
-                            easing: ease-in;
-                        }
                         animate background { duration: 100ms; easing: ease-in; }
 
                         ta := TouchArea {
