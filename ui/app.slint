@@ -14,6 +14,7 @@ export component AppWindow inherits Window {
     callback start-drag();
     callback new-clipboard-entry(text: string);
     callback copy-item(text: string);
+    callback clear-history();
 
     in property <[string]> clipboard-history;
     in property <string> placeholder-text;
@@ -264,6 +265,29 @@ export component AppWindow inherits Window {
                         height: 100%;
                         clicked => {
                             root.minimize-window();
+                        }
+                    }
+                }
+
+                Rectangle {
+                    width: 24px;
+                    height: 24px;
+                    background: #808080;
+                    border-radius: 4px;
+
+                    Text {
+                        text: "🗑";
+                        color: #ffffff;
+                        font-size: 12px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    TouchArea {
+                        width: 100%;
+                        height: 100%;
+                        clicked => {
+                            root.clear-history();
                         }
                     }
                 }

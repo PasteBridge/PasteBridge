@@ -23,6 +23,11 @@ pub fn handle_copy(state: &Arc<AppState>, body: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
+/// Handle POST /clipboard/clear
+pub fn handle_clear_history(state: &Arc<AppState>) -> Result<usize, String> {
+    Ok(state.clear_history())
+}
+
 /// Handle POST /window/show
 pub fn handle_window_show(state: &Arc<AppState>) -> Result<(), String> {
     state.set_window_visible(true);

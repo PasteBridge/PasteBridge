@@ -104,6 +104,13 @@ fn handle_request(
             }
         }
 
+        ("POST", "/clipboard/clear") => {
+            match routes::handle_clear_history(state) {
+                Ok(count) => Response::from_string(format!("Cleared {} items", count)),
+                Err(e) => Response::from_string(format!("Error: {}", e)).with_status_code(400),
+            }
+        }
+
         _ => {
             Response::from_string("Not Found")
                 .with_status_code(404)

@@ -186,6 +186,29 @@ fn main() {
         eprintln!("Copied to clipboard: {}", text_owned.chars().take(20).collect::<String>());
     });
 
+    // Clear history callback
+    let weak_clear = app_weak.clone();
+    let state_for_clear = state.clone();
+    app.on_clear_history(move || {
+        let cleared = state_for_clear.clear_history();
+        eprintln!("Cleared {} items from history", cleared);
+        
+        // Update UI
+        let weak = weak_clear.clone();
+        let state = state_for_clear.clone();
+        let _ = slint::invoke_from_event_loop(move || {
+            if let Some(w) = weak.upgrade() {
+                let history = state.get_history();
+                let items: Vec<String> = history.iter()
+                    .filter_map(|item| item.content_text.clone())
+                    .collect();
+                let items: Vec<slint::SharedString> = items.into_iter().map(|s| s.into()).collect();
+                let model = std::rc::Rc::new(slint::VecModel::from(items));
+                w.set_clipboard_history(model.into());
+            }
+        });
+    });
+
     let weak3 = app_weak.clone();
     app.on_minimize_window(move || {
         if let Some(app) = weak3.upgrade() {
