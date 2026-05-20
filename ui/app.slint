@@ -15,8 +15,16 @@ export component AppWindow inherits Window {
     callback new-clipboard-entry(text: string);
     callback copy-item(text: string);
     callback clear-history();
+    callback show-tooltip(text: string, x: float, y: float);
+    callback hide-tooltip();
 
     in property <[string]> clipboard-history;
+    
+    // Tooltip hover detection
+    property <bool> item-hovered: false;
+    property <string> hovered-item-text: "";
+    property <length> hovered-item-x: 0;
+    property <length> hovered-item-y: 0;
     in property <string> placeholder-text;
 
     // Copied 弹出提示
@@ -39,6 +47,17 @@ export component AppWindow inherits Window {
             }
         }
     }
+    
+    // Hover detection timer - poll every 100ms
+    property <bool> timer-active: true;
+    Timer {
+        interval: 100ms;
+        running: timer-active;
+        triggered => {
+            // Will be updated by list items
+        }
+    }
+    
     // in property <[string]> clipboard-history: [
     //     "Mock 1: Hello World",
     //     "Mock 2: Rust + Slint",
@@ -142,7 +161,6 @@ export component AppWindow inherits Window {
                             clicked => {
                                 root.copy-item(item);
                                 popup.show();
-                                // 1秒后自动关闭
                                 if (true) {
                                     popup.close();
                                 }
