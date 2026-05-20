@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=0.7, minimum-scale=0.8, maximum-scale=2.0, user-scalable=yes">
+    <meta http-equiv="content-type" content="text/html;charset=utf-8">
+    <title>PureCopy | 纯净复制</title>
+    <link href="../../web/font-awesome-4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="../../web/materialize/css/materialize.css">
+    <link href="index.css" rel="stylesheet" type="text/css" />
+</head>
+<body>
+    <div id="bg">
+        <div id="bg-cover-cover"></div>
+        <div id="bg-cover"></div>
+    </div>
+
+    <div id="main-content-box" class="z-depth-5">
+        <div id="data-list-box" class="z-depth-2">
+            <div id="file-list-header">
+                <div id="newest-data-sign">
+                    <i class="fa fa-paper-plane"></i> 文件传输
+                </div>
+                <div id="data-count-sign">
+                    <span id="file-count">0</span> 个文件
+                </div>
+            </div>
+
+            <div id="refresh-data-list">
+                <svg class="circular" height="50" width="50">
+                    <circle class="path" cx="25" cy="25.2" r="19.9" fill="none" stroke-width="4" stroke-miterlimit="10" />
+                </svg>
+            </div>
+
+            <div id="data-list">
+                <!-- 文件列表由 JS 动态生成 -->
+            </div>
+
+            <div class="empty-state" id="emptyState" style="display: none;">
+                <p>暂无文件，扫描二维码上传</p>
+            </div>
+        </div>
+    </div>
+
+    <div id="footer">
+        <span id="site-info">PureCopy © PasteBridge</span>
+    </div>
+
+    <div id="tips" class="z-depth-1"></div>
+
+    <script src="../../web/js/jquery-3.6.0.min.js"></script>
+    <script src="../../web/materialize/js/materialize.js"></script>
+    <script>
+        // Mock 数据
+        var mockFiles = [
+            {
+                name: '项目文档_v2.pdf',
+                size: 2456789,
+                time: '1716200000',
+                url: '#'
+            },
+            {
+                name: '照片_2024_01_15.zip',
+                size: 15678234,
+                time: '1716180000',
+                url: '#'
+            },
+            {
+                name: '会议记录.txt',
+                size: 4521,
+                time: '1716150000',
+                url: '#'
+            },
+            {
+                name: '演示文稿.pptx',
+                size: 8934521,
+                time: '1716100000',
+                url: '#'
+            },
+            {
+                name: '音乐_track03.mp3',
+                size: 5242880,
+                time: '1716050000',
+                url: '#'
+            },
+            {
+                name: '源码备份.tar.gz',
+                size: 67891234,
+                time: '1716000000',
+                url: '#'
+            }
+        ];
+
+        // 文件图标
+        function getFileIcon(fileName) {
+            var ext = fileName.split('.').pop().toLowerCase();
+            var iconMap = {
+                zip: 'fa-file-archive',
+                rar: 'fa-file-archive',
+                '7z': 'fa-file-archive',
+                tar: 'fa-file-archive',
+                gz: 'fa-file-archive',
+                pdf: 'fa-file-pdf',
+                jpg: 'fa-file-image',
+                jpeg: 'fa-file-image',
+                png: 'fa-file-image',
+                gif: 'fa-file-image',
+                bmp: 'fa-file-image',
+                webp: 'fa-file-image',
+                svg: 'fa-file-image',
+                doc: 'fa-file-word',
+                docx: 'fa-file-word',
+                xls: 'fa-file-excel',
+                xlsx: 'fa-file-excel',
+                ppt: 'fa-file-powerpoint',
+                pptx: 'fa-file-powerpoint',
+                mp3: 'fa-file-audio',
+                wav: 'fa-file-audio',
+                flac: 'fa-file-audio',
+                aac: 'fa-file-audio',
+                mp4: 'fa-file-video',
+                avi: 'fa-file-video',
+                mkv: 'fa-file-video',
+                mov: 'fa-file-video',
+                txt: 'fa-file-text',
+                md: 'fa-file-text',
+                json: 'fa-file-code',
+                xml: 'fa-file-code',
+                html: 'fa-file-code',
+                css: 'fa-file-code',
+                js: 'fa-file-code',
+                rs: 'fa-file-code',
+                exe: 'fa-file-executable'
+            };
+            return iconMap[ext] || 'fa-file';
+        }
+
+        // 获取文件图标样式类
+        function getFileIconClass(fileName) {
+            var ext = fileName.split('.').pop().toLowerCase();
+            var extMap = {
+                zip: 'zip', rar: 'zip', '7z': 'zip', tar: 'zip', gz: 'zip',
+                pdf: 'pdf',
+                jpg: 'image', jpeg: 'image', png: 'image', gif: 'image', bmp: 'image', webp: 'image', svg: 'image',
+                doc: 'doc', docx: 'doc',
+                xls: 'doc', xlsx: 'doc',
+                mp3: 'audio', wav: 'audio', flac: 'audio', aac: 'audio',
+                mp4: 'video', avi: 'video', mkv: 'video', mov: 'video'
+            };
+            return extMap[ext] || '';
+        }
+
+        // 格式化文件大小
+        function formatSize(bytes) {
+            if (bytes === 0) return '0 B';
+            var k = 1024;
+            var sizes = ['B', 'KB', 'MB', 'GB'];
+            var i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+        }
+
+        // 格式化时间
+        function formatTime(timestamp) {
+            if (!timestamp) return '--';
+            var date = new Date(parseInt(timestamp) * 1000);
+            return date.toLocaleString('zh-CN', {
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+        }
+
+        // 从 URL 参数获取文件列表，如果没有则使用 Mock 数据
+        function getFileList() {
+            var urlParams = new URLSearchParams(window.location.search);
+            var filesParam = urlParams.get('files');
+            if (filesParam) {
+                try {
+                    return JSON.parse(decodeURIComponent(filesParam));
+                } catch (e) {
+                    console.error('解析文件列表失败:', e);
+                }
+            }
+            return mockFiles;
+        }
+
+        // 渲染文件列表
+        function renderFileList() {
+            var files = getFileList();
+            var fileListEl = document.getElementById('data-list');
+            var emptyStateEl = document.getElementById('emptyState');
+            var countEl = document.getElementById('file-count');
+
+            countEl.textContent = files.length;
+
+            if (!files || files.length === 0) {
+                fileListEl.style.display = 'none';
+                emptyStateEl.style.display = 'block';
+                document.getElementById('refresh-data-list').style.display = 'none';
+                return;
+            }
+
+            document.getElementById('refresh-data-list').style.display = 'none';
+            emptyStateEl.style.display = 'none';
+
+            fileListEl.innerHTML = files.map(function(file) {
+                var iconClass = getFileIcon(file.name);
+                var iconStyleClass = getFileIconClass(file.name);
+                var downloadUrl = file.url || 'download?file=' + encodeURIComponent(file.name);
+
+                return '<div class="data-list-item" onclick="window.location.href=\'' + downloadUrl + '\'">' +
+                    '<div class="data-list-item-content">' +
+                    '<i class="fa ' + iconClass + ' file-icon ' + iconStyleClass + '"></i>' +
+                    '<div class="file-name">' + decodeURIComponent(file.name) + '</div>' +
+                    '<i class="fa fa-download download-icon"></i>' +
+                    '</div>' +
+                    '<div class="data-list-item-info">' + formatSize(file.size) + ' · ' + formatTime(file.time) + '</div>' +
+                    '</div>';
+            }).join('');
+        }
+
+        // 初始化
+        renderFileList();
+    </script>
+</body>
+</html>
