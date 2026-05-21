@@ -13,6 +13,7 @@ slint::slint! {
 pub mod clipboard;
 pub mod window_effects;
 pub mod tray;
+pub mod tooltip;
 
 use std::sync::atomic::Ordering;
 
@@ -99,6 +100,10 @@ fn main() {
     // Apply window effects (blur, shadow)
     #[cfg(target_os = "windows")]
     window_effects::apply_window_effects();
+    
+    // Create tooltip window
+    #[cfg(target_os = "windows")]
+    tooltip::create_tooltip_window();
 
     // Setup global hotkey (Ctrl+Alt+V, fallback Ctrl+Alt+B)
     let manager = GlobalHotKeyManager::new().unwrap();
@@ -199,6 +204,13 @@ fn main() {
         let text_owned: String = text.into();
         core::clipboard::set_clipboard_text(text_owned.clone());
         eprintln!("Copied to clipboard: {}", text_owned.chars().take(20).collect::<String>());
+        
+        // Show tooltip at cursor position
+        #[cfg(target_os = "windows")]
+        {
+            let pos = tooltip::get_cursor_pos();
+            tooltip::show_tooltip_at(pos.0, pos.1, "Copied");
+        }
     });
 
     // Clear history callback

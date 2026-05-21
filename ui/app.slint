@@ -6,7 +6,7 @@ export component AppWindow inherits Window {
     height: 396px;
     no-frame: true;
     always-on-top: true;
-    background:transparent;
+    background:#1a1a1ac3;
     
 
     callback minimize-window();
@@ -15,16 +15,8 @@ export component AppWindow inherits Window {
     callback new-clipboard-entry(text: string);
     callback copy-item(text: string);
     callback clear-history();
-    callback show-tooltip(text: string, x: float, y: float);
-    callback hide-tooltip();
 
     in property <[string]> clipboard-history;
-    
-    // Tooltip hover detection
-    property <bool> item-hovered: false;
-    property <string> hovered-item-text: "";
-    property <length> hovered-item-x: 0;
-    property <length> hovered-item-y: 0;
     in property <string> placeholder-text;
 
     // Copied 弹出提示
@@ -47,17 +39,6 @@ export component AppWindow inherits Window {
             }
         }
     }
-    
-    // Hover detection timer - poll every 100ms
-    property <bool> timer-active: true;
-    Timer {
-        interval: 100ms;
-        running: timer-active;
-        triggered => {
-            // Will be updated by list items
-        }
-    }
-    
     // in property <[string]> clipboard-history: [
     //     "Mock 1: Hello World",
     //     "Mock 2: Rust + Slint",
@@ -101,6 +82,11 @@ export component AppWindow inherits Window {
                 viewport-y: 0px; // For enabling animated smooth scrolling
                 horizontal-scrollbar-policy: always-off;
                 vertical-scrollbar-policy: always-off;
+
+                animate viewport-y {
+                    duration: 150ms;
+                    easing: ease-out;
+                }
 
                 VerticalLayout {
                     padding-left: 0px;
@@ -155,12 +141,27 @@ export component AppWindow inherits Window {
                         drop-shadow-offset-y: 2px;
                         drop-shadow-blur: 4px;
 
-                        animate background { duration: 100ms; easing: ease-in; }
+                        // 新条目淡入动画：Timer触发后opacity从0→1
+                        property <bool> fade-in-triggered: false;
+                        Timer {
+                            interval: 50ms;
+                            running: !fade-in-triggered;
+                            triggered => {
+                                fade-in-triggered = true;
+                            }
+                        }
+                        opacity: fade-in-triggered ? 1 : 0;
+                        animate opacity {
+                            duration: 50ms;
+                            easing: ease-in;
+                        }
+                        animate background { duration: 50ms; easing: ease-in; }
 
                         ta := TouchArea {
                             clicked => {
                                 root.copy-item(item);
                                 popup.show();
+                                // 1秒后自动关闭
                                 if (true) {
                                     popup.close();
                                 }
