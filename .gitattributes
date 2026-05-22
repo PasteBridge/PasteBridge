@@ -1,0 +1,27 @@
+# 统一 Line Ending 设置
+# Windows: 转换为 CRLF, Linux/Mac: 保持 LF
+
+# 自动检测文件类型并设置合适的 line ending
+* text=auto
+
+# 特定文件类型明确指定 (使用 LF)
+*.jsonl    text eol=lf
+*.md       text eol=lf
+*.rs       text eol=lf
+*.ts       text eol=lf
+*.tsx      text eol=lf
+*.js       text eol=lf
+*.jsx      text eol=lf
+*.json     text eol=lf
+*.yml      text eol=lf
+*.yaml     text eol=lf
+*.toml     text eol=lf
+*.slint    text eol=lf
+
+# 二进制文件不转换
+*.png  binary
+*.jpg  binary
+*.gif  binary
+*.ico  binary
+*.exe  binary
+*.dll  binary

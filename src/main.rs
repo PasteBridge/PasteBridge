@@ -16,6 +16,7 @@ pub mod tray;
 pub mod tooltip;
 
 use std::sync::atomic::Ordering;
+use std::time::Duration;
 
 use global_hotkey::{GlobalHotKeyManager, hotkey::{HotKey, Modifiers, Code}};
 use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
@@ -45,7 +46,7 @@ mod window_util {
 
 fn main() {
     // Set backend and style
-    std::env::set_var("SLINT_BACKEND", "winit-software");
+    // std::env::set_var("SLINT_BACKEND", "winit-software");
     std::env::set_var("SLINT_STYLE", "fluent");
 
     eprintln!("Starting PasteBridge...");
@@ -61,17 +62,32 @@ fn main() {
     // Create and setup app window
     let app = AppWindow::new().unwrap();
     let app_weak = app.as_weak();
+    
+    // Shared clipboard history for hover detection
+    use std::sync::Arc;
+    let clipboard_history: Arc<std::sync::Mutex<Vec<String>>> = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let clipboard_history_clone = clipboard_history.clone();
 
     // Load clipboard history from database on startup
     let state_for_init = state.clone();
     let app_for_init = app.as_weak();
+    let clipboard_history_for_init = clipboard_history_clone.clone();
     slint::invoke_from_event_loop(move || {
         if let Some(w) = app_for_init.upgrade() {
             let history = state_for_init.get_history();
-            let items: Vec<String> = history.iter()
+            let items: Vec<slint::SharedString> = history.iter()
                 .filter_map(|item| item.content_text.clone())
+                .collect::<Vec<_>>()
+                .into_iter()
+                .map(|s| s.into())
                 .collect();
-            let items: Vec<slint::SharedString> = items.into_iter().map(|s| s.into()).collect();
+            // Update shared clipboard history
+            {
+                let mut hist = clipboard_history_for_init.lock().unwrap();
+                *hist = history.iter()
+                    .filter_map(|item| item.content_text.clone())
+                    .collect();
+            }
             let model = std::rc::Rc::new(slint::VecModel::from(items));
             w.set_clipboard_history(model.into());
         }
@@ -81,16 +97,27 @@ fn main() {
     let app_weak_clone = app_weak.clone();
     let state_for_clipboard = state.clone();
     let state_for_ui = state.clone();
+    let clipboard_history_for_update = clipboard_history_clone.clone();
     core::clipboard::start_clipboard_monitor(state_for_clipboard, move |_text| {
         let weak = app_weak_clone.clone();
         let state = state_for_ui.clone();
+        let history_for_update = clipboard_history_for_update.clone();
         let _ = slint::invoke_from_event_loop(move || {
             if let Some(w) = weak.upgrade() {
                 let history = state.get_history();
-                let items: Vec<String> = history.iter()
+                let items: Vec<slint::SharedString> = history.iter()
                     .filter_map(|item| item.content_text.clone())
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .map(|s| s.into())
                     .collect();
-                let items: Vec<slint::SharedString> = items.into_iter().map(|s| s.into()).collect();
+                // Update shared clipboard history
+                {
+                    let mut hist = history_for_update.lock().unwrap();
+                    *hist = history.iter()
+                        .filter_map(|item| item.content_text.clone())
+                        .collect();
+                }
                 let model = std::rc::Rc::new(slint::VecModel::from(items));
                 w.set_clipboard_history(model.into());
             }
@@ -104,10 +131,17 @@ fn main() {
     // Create tooltip window
     #[cfg(target_os = "windows")]
     tooltip::create_tooltip_window();
-
+    
+    // Create separate hover tooltip window
+    #[cfg(target_os = "windows")]
+    tooltip::create_hover_tooltip_window();
+    
     // Setup global hotkey (Ctrl+Alt+V, fallback Ctrl+Alt+B)
     let manager = GlobalHotKeyManager::new().unwrap();
     let hotkey = HotKey::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyV);
+    
+    // We try catching the register errors. Sometimes it happens if another instance is already running.
+    // So let's fall back to another key or simply not exit if both fail.
     let hotkey_id = match manager.register(hotkey) {
         Ok(_) => hotkey.id(),
         Err(e) => {
@@ -117,8 +151,8 @@ fn main() {
                 Ok(_) => backup_hotkey.id(),
                 Err(e2) => {
                     eprintln!("Backup hotkey also failed: {}", e2);
-                    tray::IS_VISIBLE.store(false, Ordering::SeqCst);
-                    std::process::exit(1);
+                    eprintln!("A previous instance might be running or hotkeys are used elsewhere. We will continue without a hotkey.");
+                    0
                 }
             }
         }
@@ -213,6 +247,22 @@ fn main() {
         }
     });
 
+    // Hover tooltip callbacks
+    app.on_show_hover_tooltip(move |text: slint::SharedString| {
+        #[cfg(target_os = "windows")]
+        {
+            let text_owned: String = text.into();
+            tooltip::show_hover_tooltip(&text_owned);
+        }
+    });
+
+    app.on_hide_hover_tooltip(move || {
+        #[cfg(target_os = "windows")]
+        {
+            tooltip::hide_hover_tooltip();
+        }
+    });
+
     // Clear history callback
     let state_for_clear = state.clone();
     let app_for_clear = app.as_weak();
@@ -239,6 +289,16 @@ fn main() {
             }
             let _ = app.window().set_position(slint::PhysicalPosition::new(-10000, -10000));
             tray::IS_VISIBLE.store(false, Ordering::SeqCst);
+        }
+    });
+
+    // Toggle settings callback
+    let app_for_settings = app.as_weak();
+    app.on_toggle_settings(move || {
+        if let Some(app) = app_for_settings.upgrade() {
+            use slint::ComponentHandle;
+            let current = app.get_settings_visible();
+            app.set_settings_visible(!current);
         }
     });
 

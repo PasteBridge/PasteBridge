@@ -1,8 +1,10 @@
-﻿use std::sync::atomic::{AtomicIsize, Ordering};
+﻿use std::sync::atomic::{AtomicIsize, AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 
 pub static APP_HWND: AtomicIsize = AtomicIsize::new(0);
+pub static WINDOW_EFFECTS_READY: AtomicBool = AtomicBool::new(false);
+pub static INITIAL_FADE_DONE: AtomicBool = AtomicBool::new(false);
 
 /// 获取鼠标光标位置
 pub fn get_cursor_pos() -> (i32, i32) {
@@ -32,11 +34,14 @@ pub fn fade_in(hwnd: windows::Win32::Foundation::HWND) {
 
         let steps = 15;
         let delay_ms = 5;
+        
         for i in 0..=steps {
             let alpha = (255 * i / steps) as u8;
             SetLayeredWindowAttributes(hwnd, COLORREF(0), alpha, LWA_ALPHA).ok();
             thread::sleep(Duration::from_millis(delay_ms));
         }
+        
+        INITIAL_FADE_DONE.store(true, Ordering::SeqCst);
     }
 }
 
@@ -101,13 +106,34 @@ pub fn apply_window_effects() {
             use windows::Win32::Graphics::Dwm::DwmExtendFrameIntoClientArea;
             use windows::Win32::UI::Controls::MARGINS;
 
+            // 设为 0 避免与 Slint 的 no-frame 冲突，导致显示原生按钮
             let margins = MARGINS {
-                cxLeftWidth: -1,
-                cxRightWidth: -1,
-                cyTopHeight: -1,
-                cyBottomHeight: -1,
+                cxLeftWidth: 0,
+                cxRightWidth: 0,
+                cyTopHeight: 0,
+                cyBottomHeight: 0,
             };
             DwmExtendFrameIntoClientArea(hwnd, &margins).ok();
+            
+            // 设置窗口为显示位置但完全透明（为第一次渐变做准备）
+            use windows::Win32::UI::WindowsAndMessaging::{SetLayeredWindowAttributes, LWA_ALPHA, GetWindowLongPtrW, SetWindowLongPtrW, GWL_EXSTYLE, WS_EX_LAYERED};
+            use windows::Win32::Foundation::COLORREF;
+            
+            let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, (ex_style | WS_EX_LAYERED.0 as u32) as isize);
+            
+            // 设置完全透明
+            SetLayeredWindowAttributes(hwnd, COLORREF(0), 0, LWA_ALPHA).ok();
+            
+            // 标记窗口效果已准备好
+            WINDOW_EFFECTS_READY.store(true, Ordering::SeqCst);
         }
     });
+}
+
+/// 等待窗口效果准备就绪
+pub fn wait_for_window_effects_ready() {
+    while !WINDOW_EFFECTS_READY.load(Ordering::SeqCst) {
+        thread::sleep(Duration::from_millis(10));
+    }
 }

@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-slint = "1.16"
+slint = { git = "https://github.com/slint-ui/slint.git", branch = "master" }
 global-hotkey = "0.6"
 clipboard-win = "5.4"
 arboard = "3.4"
@@ -20,7 +20,7 @@ window-vibrancy = "0.7.1"
 tray-icon = "0.14"
 
 [build-dependencies]
-slint-build = "1.16"
+slint-build = { git = "https://github.com/slint-ui/slint.git", branch = "master" }
 
 [profile.release]
 opt-level = "z"     # 优化大小
