@@ -190,14 +190,18 @@ impl Database {
 
     /// 获取历史记录
     pub fn get_history(&self, limit: usize) -> SqliteResult<Vec<ClipboardItem>> {
-        let mut stmt = self.conn.prepare(
-            r#"SELECT id, content_type, content_text, content_path, content_hash,
-                      mime_type, file_size, width, height, source_ip, created_at, is_favorite
-               FROM clipboard_items
-               WHERE is_deleted = 0
-               ORDER BY created_at DESC
-               LIMIT ?1"#
-        )?;
+         // Limit the amount of text loaded into memory per item by truncating
+         // `content_text` to the first 2000 characters. This prevents large
+         // clipboard entries from blowing up process memory when building UI
+         // models or serializing history.
+         let mut stmt = self.conn.prepare(
+            r#"SELECT id, content_type, substr(content_text, 1, 200) as content_text, content_path, content_hash,
+                 mime_type, file_size, width, height, source_ip, created_at, is_favorite
+             FROM clipboard_items
+             WHERE is_deleted = 0
+             ORDER BY created_at DESC
+             LIMIT ?1"#
+         )?;
 
         let items = stmt.query_map(params![limit as i64], |row| {
             let content_type_str: String = row.get(1)?;

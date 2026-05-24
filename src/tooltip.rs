@@ -9,10 +9,12 @@ static HOVER_TEXT: Mutex<String> = Mutex::new(String::new());
 
 pub static TOOLTIP_HWND: AtomicIsize = AtomicIsize::new(0);
 pub static TOOLTIP_VISIBLE: AtomicBool = AtomicBool::new(false);
+static TOOLTIP_INIT_STARTED: AtomicBool = AtomicBool::new(false);
 
 // Separate hover tooltip
 pub static HOVER_TOOLTIP_HWND: AtomicIsize = AtomicIsize::new(0);
 pub static HOVER_TOOLTIP_VISIBLE: AtomicBool = AtomicBool::new(false);
+static HOVER_TOOLTIP_INIT_STARTED: AtomicBool = AtomicBool::new(false);
 
 /// Callback to get clipboard item at index: (y_offset, height) -> Option<String>
 static HOVER_CALLBACK: Mutex<Option<Box<dyn Fn(i32, i32) -> Option<String> + Send + Sync>>> = Mutex::new(None);
@@ -52,6 +54,7 @@ pub fn update_hover_state(y_offset: i32, item_height: i32) {
 /// Immediate show without delay for debugging
 #[cfg(target_os = "windows")]
 pub fn show_hover_tooltip(text: &str) {
+    ensure_hover_tooltip_window();
     let hwnd_value = HOVER_TOOLTIP_HWND.load(Ordering::SeqCst);
     if hwnd_value == 0 {
         return;
@@ -138,6 +141,9 @@ pub fn get_cursor_pos() -> (i32, i32) {
 
 #[cfg(target_os = "windows")]
 pub fn create_tooltip_window() {
+    if TOOLTIP_INIT_STARTED.swap(true, Ordering::SeqCst) {
+        return;
+    }
     thread::spawn(move || {
         while APP_HWND.load(Ordering::SeqCst) == 0 {
             thread::sleep(Duration::from_millis(50));
@@ -230,6 +236,9 @@ pub fn create_tooltip_window() {
 /// Create separate hover tooltip window
 #[cfg(target_os = "windows")]
 pub fn create_hover_tooltip_window() {
+    if HOVER_TOOLTIP_INIT_STARTED.swap(true, Ordering::SeqCst) {
+        return;
+    }
     thread::spawn(move || {
         while APP_HWND.load(Ordering::SeqCst) == 0 {
             thread::sleep(Duration::from_millis(50));
@@ -481,6 +490,7 @@ fn fade_out_tooltip() {
 
 #[cfg(target_os = "windows")]
 pub fn show_tooltip_at(screen_x: i32, screen_y: i32, text: &str) {
+    ensure_tooltip_window();
     let hwnd_value = TOOLTIP_HWND.load(Ordering::SeqCst);
     if hwnd_value == 0 {
         eprintln!("[tooltip] No tooltip window available");
@@ -538,6 +548,7 @@ pub fn hide_tooltip() {
 /// Show hover tooltip on the left side of the list item
 #[cfg(target_os = "windows")]
 pub fn show_hover_tooltip_at(window_x: i32, window_y: i32, text: &str) {
+    ensure_tooltip_window();
     let hwnd_value = TOOLTIP_HWND.load(Ordering::SeqCst);
     if hwnd_value == 0 {
         eprintln!("[tooltip] No tooltip window available");
@@ -587,5 +598,33 @@ pub fn show_hover_tooltip_at(window_x: i32, window_y: i32, text: &str) {
         
         // Fade in
         fade_in_tooltip();
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn ensure_tooltip_window() {
+    if TOOLTIP_HWND.load(Ordering::SeqCst) != 0 {
+        return;
+    }
+    create_tooltip_window();
+    for _ in 0..20 {
+        if TOOLTIP_HWND.load(Ordering::SeqCst) != 0 {
+            break;
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn ensure_hover_tooltip_window() {
+    if HOVER_TOOLTIP_HWND.load(Ordering::SeqCst) != 0 {
+        return;
+    }
+    create_hover_tooltip_window();
+    for _ in 0..20 {
+        if HOVER_TOOLTIP_HWND.load(Ordering::SeqCst) != 0 {
+            break;
+        }
+        thread::sleep(Duration::from_millis(10));
     }
 }

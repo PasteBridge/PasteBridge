@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-slint = { git = "https://github.com/slint-ui/slint.git", branch = "master" }
+slint = { git = "https://github.com/slint-ui/slint.git", branch = "master", default-features = false, features = ["std", "backend-winit", "renderer-skia", "compat-1-2"] }
 global-hotkey = "0.6"
 clipboard-win = "5.4"
 arboard = "3.4"

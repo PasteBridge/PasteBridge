@@ -18,10 +18,11 @@ export component AppWindow inherits Window {
     callback hide-window();
     callback start-drag();
     callback new-clipboard-entry(text: string);
-    callback copy-item(text: string);
+    callback copy-item(index: int);
     callback clear-history();
     callback toggle-settings();
     callback show-hover-tooltip(text: string);
+    callback show-hover-tooltip-index(index: int);
     callback hide-hover-tooltip();
     callback toggle-theme();
 
@@ -275,7 +276,7 @@ export component AppWindow inherits Window {
                             // 创建时触发淡入
                             Timer {
                                 interval: 30ms;
-                                running: true;
+                                running: !animated;
                                 triggered => {
                                     animated = true;
                                 }
@@ -295,7 +296,7 @@ export component AppWindow inherits Window {
                             
                             ta := TouchArea {
                                 clicked => {
-                                    root.copy-item(item);
+                                    root.copy-item(index);
                                     popup.show();
                                     if (true) {
                                         popup.close();
@@ -307,13 +308,13 @@ export component AppWindow inherits Window {
                             property <bool> is-hovering: ta.has-hover;
                             property <bool> was-hovering: false;
                             
-                            // Timer to detect hover state changes (high frequency for responsiveness)
+                            // Timer to detect hover state changes (reduced frequency)
                             Timer {
-                                interval: 1ms;
-                                running: true;
+                                interval: 50ms;
+                                running: is-hovering || was-hovering;
                                 triggered => {
                                     if (is-hovering && !was-hovering) {
-                                        root.show-hover-tooltip(item);
+                                        root.show-hover-tooltip-index(index);
                                     }
                                     if (!is-hovering && was-hovering) {
                                         root.hide-hover-tooltip();

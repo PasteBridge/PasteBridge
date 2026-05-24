@@ -6,3 +6,6 @@ pastebridge.code-workspace
 /target
 .refact/buddy/memory_ops.jsonl
 .refact/buddy/state.json
+.refact/buddy/memory_ops.jsonl
+.refact/buddy/runtime_queue.jsonl
+.refact/buddy/state.json

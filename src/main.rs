@@ -45,9 +45,13 @@ mod window_util {
 }
 
 fn main() {
-    // Set backend and style
-    // std::env::set_var("SLINT_BACKEND", "winit-software");
+    // Set backend and style (use Skia renderer for D3D on Windows)
+    std::env::set_var("SLINT_BACKEND", "winit-skia");
     std::env::set_var("SLINT_STYLE", "fluent");
+
+    const WINDOW_WIDTH: f32 = 280.0;
+    const WINDOW_HEIGHT: f32 = 396.0;
+    const HIDDEN_WINDOW_SIZE: f32 = 1.0;
 
     eprintln!("Starting PasteBridge...");
 
@@ -57,36 +61,40 @@ fn main() {
         .unwrap_or_else(|_| std::path::PathBuf::from("."));
 
     // Create app state with database
-    let state = core::state::AppState::new(&app_data_dir, 100);
+    let state = core::state::AppState::new(&app_data_dir, 20);
 
     // Create and setup app window
     let app = AppWindow::new().unwrap();
     let app_weak = app.as_weak();
+    app.window().set_size(slint::LogicalSize::new(HIDDEN_WINDOW_SIZE, HIDDEN_WINDOW_SIZE));
     
-    // Shared clipboard history for hover detection
+    // Shared clipboard history for hover detection (store previews as SharedString to avoid copies)
     use std::sync::Arc;
-    let clipboard_history: Arc<std::sync::Mutex<Vec<String>>> = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let clipboard_history: Arc<std::sync::Mutex<Vec<slint::SharedString>>> = Arc::new(std::sync::Mutex::new(Vec::<slint::SharedString>::new()));
     let clipboard_history_clone = clipboard_history.clone();
+    // Parallel vector storing the corresponding database IDs for each history entry
+    let clipboard_ids: Arc<std::sync::Mutex<Vec<i64>>> = Arc::new(std::sync::Mutex::new(Vec::<i64>::new()));
 
     // Load clipboard history from database on startup
     let state_for_init = state.clone();
     let app_for_init = app.as_weak();
     let clipboard_history_for_init = clipboard_history_clone.clone();
+    let clipboard_ids_for_init = clipboard_ids.clone();
     slint::invoke_from_event_loop(move || {
         if let Some(w) = app_for_init.upgrade() {
             let history = state_for_init.get_history();
             let items: Vec<slint::SharedString> = history.iter()
                 .filter_map(|item| item.content_text.clone())
-                .collect::<Vec<_>>()
-                .into_iter()
                 .map(|s| s.into())
                 .collect();
+            let ids: Vec<i64> = history.iter().map(|item| item.id).collect();
             // Update shared clipboard history
             {
                 let mut hist = clipboard_history_for_init.lock().unwrap();
-                *hist = history.iter()
-                    .filter_map(|item| item.content_text.clone())
-                    .collect();
+                *hist = items.clone();
+                // store ids in parallel vector
+                let mut id_lock = clipboard_ids_for_init.lock().unwrap();
+                *id_lock = ids;
             }
             let model = std::rc::Rc::new(slint::VecModel::from(items));
             w.set_clipboard_history(model.into());
@@ -98,25 +106,28 @@ fn main() {
     let state_for_clipboard = state.clone();
     let state_for_ui = state.clone();
     let clipboard_history_for_update = clipboard_history_clone.clone();
-    core::clipboard::start_clipboard_monitor(state_for_clipboard, move |_text| {
+    let clipboard_ids_for_update = clipboard_ids.clone();
+    core::clipboard::start_clipboard_monitor(state_for_clipboard, move || {
         let weak = app_weak_clone.clone();
         let state = state_for_ui.clone();
         let history_for_update = clipboard_history_for_update.clone();
+        // clone the Arc here so we don't move the outer Arc captured by the
+        // monitor thread's closure (which must implement `Fn`).
+        let ids_value = clipboard_ids_for_update.clone();
         let _ = slint::invoke_from_event_loop(move || {
             if let Some(w) = weak.upgrade() {
                 let history = state.get_history();
                 let items: Vec<slint::SharedString> = history.iter()
                     .filter_map(|item| item.content_text.clone())
-                    .collect::<Vec<_>>()
-                    .into_iter()
                     .map(|s| s.into())
                     .collect();
+                let ids: Vec<i64> = history.iter().map(|item| item.id).collect();
                 // Update shared clipboard history
                 {
                     let mut hist = history_for_update.lock().unwrap();
-                    *hist = history.iter()
-                        .filter_map(|item| item.content_text.clone())
-                        .collect();
+                    *hist = items.clone();
+                    let mut id_lock = ids_value.lock().unwrap();
+                    *id_lock = ids;
                 }
                 let model = std::rc::Rc::new(slint::VecModel::from(items));
                 w.set_clipboard_history(model.into());
@@ -127,14 +138,6 @@ fn main() {
     // Apply window effects (blur, shadow)
     #[cfg(target_os = "windows")]
     window_effects::apply_window_effects();
-    
-    // Create tooltip window
-    #[cfg(target_os = "windows")]
-    tooltip::create_tooltip_window();
-    
-    // Create separate hover tooltip window
-    #[cfg(target_os = "windows")]
-    tooltip::create_hover_tooltip_window();
     
     // Setup global hotkey (Ctrl+Alt+V, fallback Ctrl+Alt+B)
     let manager = GlobalHotKeyManager::new().unwrap();
@@ -180,8 +183,9 @@ fn main() {
                         tray::IS_VISIBLE.store(false, Ordering::SeqCst);
                     } else {
                         // Show window at golden ratio position
-                        let win_w = 280i32;
-                        let win_h = 396i32;
+                        app.window().set_size(slint::LogicalSize::new(WINDOW_WIDTH, WINDOW_HEIGHT));
+                        let win_w = WINDOW_WIDTH as i32;
+                        let win_h = WINDOW_HEIGHT as i32;
                         let screen_w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
                         let screen_h = unsafe { GetSystemMetrics(SM_CYSCREEN) };
                         let x = (screen_w - win_w) / 2;
@@ -223,6 +227,7 @@ fn main() {
     app.on_hide_window(move || {
         if let Some(app) = weak2.upgrade() {
             use slint::ComponentHandle;
+            app.window().set_size(slint::LogicalSize::new(HIDDEN_WINDOW_SIZE, HIDDEN_WINDOW_SIZE));
             let hwnd_isize = window_effects::APP_HWND.load(Ordering::SeqCst);
             if hwnd_isize != 0 {
                 let hwnd = windows::Win32::Foundation::HWND(hwnd_isize as *mut std::ffi::c_void);
@@ -233,26 +238,51 @@ fn main() {
         }
     });
 
-    // Copy item callback
-    app.on_copy_item(move |text: slint::SharedString| {
-        let text_owned: String = text.into();
-        core::clipboard::set_clipboard_text(text_owned.clone());
-        eprintln!("Copied to clipboard: {}", text_owned.chars().take(20).collect::<String>());
-        
-        // Show tooltip at cursor position
-        #[cfg(target_os = "windows")]
-        {
-            let pos = tooltip::get_cursor_pos();
-            tooltip::show_tooltip_at(pos.0, pos.1, "Copied");
+    // Copy item callback (index-based) - load full item on demand
+    let ids_for_copy = clipboard_ids.clone();
+    let state_for_copy = state.clone();
+    app.on_copy_item(move |index: i32| {
+        let idx = index as usize;
+        let ids = ids_for_copy.lock().unwrap();
+        if idx >= ids.len() {
+            eprintln!("copy-item: index out of range: {}", idx);
+            return;
+        }
+        let id = ids[idx];
+        if let Some(item) = state_for_copy.get_item(id) {
+            if let Some(text) = item.content_text {
+                core::clipboard::set_clipboard_text(text.clone());
+                eprintln!("Copied to clipboard (id={}): {}", id, text.chars().take(20).collect::<String>());
+                #[cfg(target_os = "windows")]
+                {
+                    let pos = tooltip::get_cursor_pos();
+                    tooltip::show_tooltip_at(pos.0, pos.1, "Copied");
+                }
+            } else {
+                eprintln!("copy-item: item id {} has no text", id);
+            }
+        } else {
+            eprintln!("copy-item: no item found for id {}", id);
         }
     });
 
-    // Hover tooltip callbacks
-    app.on_show_hover_tooltip(move |text: slint::SharedString| {
-        #[cfg(target_os = "windows")]
-        {
-            let text_owned: String = text.into();
-            tooltip::show_hover_tooltip(&text_owned);
+    // Hover tooltip callbacks - index-based: load full text on demand for tooltip
+    let ids_for_hover = clipboard_ids.clone();
+    let state_for_hover = state.clone();
+    app.on_show_hover_tooltip_index(move |index: i32| {
+        let idx = index as usize;
+        let ids = ids_for_hover.lock().unwrap();
+        if idx >= ids.len() {
+            return;
+        }
+        let id = ids[idx];
+        if let Some(item) = state_for_hover.get_item(id) {
+            if let Some(text) = item.content_text {
+                #[cfg(target_os = "windows")]
+                {
+                    tooltip::show_hover_tooltip(&text);
+                }
+            }
         }
     });
 
@@ -282,6 +312,7 @@ fn main() {
     app.on_minimize_window(move || {
         if let Some(app) = weak3.upgrade() {
             use slint::ComponentHandle;
+            app.window().set_size(slint::LogicalSize::new(HIDDEN_WINDOW_SIZE, HIDDEN_WINDOW_SIZE));
             let hwnd_isize = window_effects::APP_HWND.load(Ordering::SeqCst);
             if hwnd_isize != 0 {
                 let hwnd = windows::Win32::Foundation::HWND(hwnd_isize as *mut std::ffi::c_void);
