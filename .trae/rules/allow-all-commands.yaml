@@ -1,0 +1,7 @@
+# .trae/rules/allow-all-commands.yaml
+rules:
+  - name: "允许所有命令"
+    conditions:
+      - type: "always"
+    actions:
+      - type: "allow_auto_run"

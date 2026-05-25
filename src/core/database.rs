@@ -92,7 +92,6 @@ impl Database {
 
     /// 计算内容的 SHA256 哈希
     pub fn compute_hash(content: &[u8]) -> String {
-        use sha2::Digest;
         let hash = Sha256::digest(content);
         hex::encode(hash)
     }
@@ -191,11 +190,10 @@ impl Database {
     /// 获取历史记录
     pub fn get_history(&self, limit: usize) -> SqliteResult<Vec<ClipboardItem>> {
          // Limit the amount of text loaded into memory per item by truncating
-         // `content_text` to the first 2000 characters. This prevents large
-         // clipboard entries from blowing up process memory when building UI
-         // models or serializing history.
+         // `content_text` to the first 50 characters for display in UI.
+         // This significantly reduces memory usage while keeping UI responsive.
          let mut stmt = self.conn.prepare(
-            r#"SELECT id, content_type, substr(content_text, 1, 200) as content_text, content_path, content_hash,
+            r#"SELECT id, content_type, substr(content_text, 1, 50) as content_text, content_path, content_hash,
                  mime_type, file_size, width, height, source_ip, created_at, is_favorite
              FROM clipboard_items
              WHERE is_deleted = 0

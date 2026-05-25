@@ -1,0 +1,5 @@
+## Intentionally empty: do not force-link `msvcprt` here.
+## Rely on the Visual Studio environment (vcvars64) to set LIB paths
+## so the linker uses the MSVC runtime matching your toolset.
+
+# If you need to add rustflags, ensure paths have no spaces or use short paths.

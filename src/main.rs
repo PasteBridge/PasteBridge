@@ -16,7 +16,6 @@ pub mod tray;
 pub mod tooltip;
 
 use std::sync::atomic::Ordering;
-use std::time::Duration;
 
 use global_hotkey::{GlobalHotKeyManager, hotkey::{HotKey, Modifiers, Code}};
 use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
@@ -48,6 +47,9 @@ fn main() {
     // Set backend and style (use Skia renderer for D3D on Windows)
     std::env::set_var("SLINT_BACKEND", "winit-skia");
     std::env::set_var("SLINT_STYLE", "fluent");
+    
+    // Disable ICU4X verbose logging to reduce memory overhead
+    std::env::set_var("ICU4X_DATA_DIR", "");
 
     const WINDOW_WIDTH: f32 = 280.0;
     const WINDOW_HEIGHT: f32 = 396.0;
@@ -55,47 +57,57 @@ fn main() {
 
     eprintln!("Starting PasteBridge...");
 
+    // Initialize memory monitor
+    let memory_monitor = core::memory::MemoryMonitor::new();
+    let initial_memory = memory_monitor.update();
+    eprintln!("[memory] Initial memory: {}", core::memory::MemoryMonitor::format_memory(initial_memory));
+
     // Get app data directory
     let app_data_dir = std::env::var("LOCALAPPDATA")
         .map(|p| std::path::PathBuf::from(p).join("PasteBridge"))
         .unwrap_or_else(|_| std::path::PathBuf::from("."));
 
-    // Create app state with database
-    let state = core::state::AppState::new(&app_data_dir, 20);
+    // Create app state with database (limit to 10 items for reduced memory usage)
+    let state = core::state::AppState::new(&app_data_dir, 10);
 
     // Create and setup app window
     let app = AppWindow::new().unwrap();
     let app_weak = app.as_weak();
     app.window().set_size(slint::LogicalSize::new(HIDDEN_WINDOW_SIZE, HIDDEN_WINDOW_SIZE));
     
-    // Shared clipboard history for hover detection (store previews as SharedString to avoid copies)
+    // Single source of truth: store both text and IDs together
     use std::sync::Arc;
-    let clipboard_history: Arc<std::sync::Mutex<Vec<slint::SharedString>>> = Arc::new(std::sync::Mutex::new(Vec::<slint::SharedString>::new()));
-    let clipboard_history_clone = clipboard_history.clone();
-    // Parallel vector storing the corresponding database IDs for each history entry
-    let clipboard_ids: Arc<std::sync::Mutex<Vec<i64>>> = Arc::new(std::sync::Mutex::new(Vec::<i64>::new()));
+    #[derive(Clone)]
+    struct ClipboardEntry {
+        text: slint::SharedString,
+        id: i64,
+    }
+    let clipboard_entries: Arc<std::sync::Mutex<Vec<ClipboardEntry>>> = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let clipboard_entries_clone = clipboard_entries.clone();
 
     // Load clipboard history from database on startup
     let state_for_init = state.clone();
     let app_for_init = app.as_weak();
-    let clipboard_history_for_init = clipboard_history_clone.clone();
-    let clipboard_ids_for_init = clipboard_ids.clone();
+    let entries_for_init = clipboard_entries_clone.clone();
     slint::invoke_from_event_loop(move || {
         if let Some(w) = app_for_init.upgrade() {
             let history = state_for_init.get_history();
-            let items: Vec<slint::SharedString> = history.iter()
-                .filter_map(|item| item.content_text.clone())
-                .map(|s| s.into())
+            let entries: Vec<ClipboardEntry> = history.iter()
+                .filter_map(|item| {
+                    item.content_text.clone().map(|text| ClipboardEntry {
+                        text: text.into(),
+                        id: item.id,
+                    })
+                })
                 .collect();
-            let ids: Vec<i64> = history.iter().map(|item| item.id).collect();
-            // Update shared clipboard history
+            
+            // Update shared entries
             {
-                let mut hist = clipboard_history_for_init.lock().unwrap();
-                *hist = items.clone();
-                // store ids in parallel vector
-                let mut id_lock = clipboard_ids_for_init.lock().unwrap();
-                *id_lock = ids;
+                let mut entries_lock = entries_for_init.lock().unwrap();
+                *entries_lock = entries.clone();
             }
+            
+            let items: Vec<slint::SharedString> = entries.iter().map(|e| e.text.clone()).collect();
             let model = std::rc::Rc::new(slint::VecModel::from(items));
             w.set_clipboard_history(model.into());
         }
@@ -105,32 +117,56 @@ fn main() {
     let app_weak_clone = app_weak.clone();
     let state_for_clipboard = state.clone();
     let state_for_ui = state.clone();
-    let clipboard_history_for_update = clipboard_history_clone.clone();
-    let clipboard_ids_for_update = clipboard_ids.clone();
+    let entries_for_update = clipboard_entries_clone.clone();
+    let memory_monitor_clone = std::sync::Arc::new(memory_monitor);
+    let mem_for_update = memory_monitor_clone.clone();
     core::clipboard::start_clipboard_monitor(state_for_clipboard, move || {
         let weak = app_weak_clone.clone();
         let state = state_for_ui.clone();
-        let history_for_update = clipboard_history_for_update.clone();
-        // clone the Arc here so we don't move the outer Arc captured by the
-        // monitor thread's closure (which must implement `Fn`).
-        let ids_value = clipboard_ids_for_update.clone();
+        let entries_for_update = entries_for_update.clone();
+        let mem = mem_for_update.clone();
+        
         let _ = slint::invoke_from_event_loop(move || {
+            // Only track memory on every 10th update to reduce logging overhead
+            static UPDATE_COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+            let count = UPDATE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            
+            let mem_before = if count % 10 == 0 { Some(mem.update()) } else { None };
+            
             if let Some(w) = weak.upgrade() {
                 let history = state.get_history();
-                let items: Vec<slint::SharedString> = history.iter()
-                    .filter_map(|item| item.content_text.clone())
-                    .map(|s| s.into())
+                let entries: Vec<ClipboardEntry> = history.iter()
+                    .filter_map(|item| {
+                        item.content_text.clone().map(|text| ClipboardEntry {
+                            text: text.into(),
+                            id: item.id,
+                        })
+                    })
                     .collect();
-                let ids: Vec<i64> = history.iter().map(|item| item.id).collect();
-                // Update shared clipboard history
+                
+                // Extract items for UI model
+                let items: Vec<slint::SharedString> = entries.iter()
+                    .map(|e| e.text.clone())
+                    .collect();
+                
+                // Update shared entries
                 {
-                    let mut hist = history_for_update.lock().unwrap();
-                    *hist = items.clone();
-                    let mut id_lock = ids_value.lock().unwrap();
-                    *id_lock = ids;
+                    let mut entries_lock = entries_for_update.lock().unwrap();
+                    *entries_lock = entries;
                 }
+                
                 let model = std::rc::Rc::new(slint::VecModel::from(items));
                 w.set_clipboard_history(model.into());
+                
+                // Only log memory every 10 updates
+                if let Some(before) = mem_before {
+                    let mem_after = mem.update();
+                    let mem_delta = if mem_after > before { mem_after - before } else { 0 };
+                    eprintln!("[memory] Update {}: {} (+{})", 
+                        count,
+                        core::memory::MemoryMonitor::format_memory(mem_after),
+                        core::memory::MemoryMonitor::format_memory(mem_delta));
+                }
             }
         });
     });
@@ -239,16 +275,16 @@ fn main() {
     });
 
     // Copy item callback (index-based) - load full item on demand
-    let ids_for_copy = clipboard_ids.clone();
+    let entries_for_copy = clipboard_entries_clone.clone();
     let state_for_copy = state.clone();
     app.on_copy_item(move |index: i32| {
         let idx = index as usize;
-        let ids = ids_for_copy.lock().unwrap();
-        if idx >= ids.len() {
+        let entries = entries_for_copy.lock().unwrap();
+        if idx >= entries.len() {
             eprintln!("copy-item: index out of range: {}", idx);
             return;
         }
-        let id = ids[idx];
+        let id = entries[idx].id;
         if let Some(item) = state_for_copy.get_item(id) {
             if let Some(text) = item.content_text {
                 core::clipboard::set_clipboard_text(text.clone());
@@ -267,15 +303,15 @@ fn main() {
     });
 
     // Hover tooltip callbacks - index-based: load full text on demand for tooltip
-    let ids_for_hover = clipboard_ids.clone();
+    let entries_for_hover = clipboard_entries_clone.clone();
     let state_for_hover = state.clone();
     app.on_show_hover_tooltip_index(move |index: i32| {
         let idx = index as usize;
-        let ids = ids_for_hover.lock().unwrap();
-        if idx >= ids.len() {
+        let entries = entries_for_hover.lock().unwrap();
+        if idx >= entries.len() {
             return;
         }
-        let id = ids[idx];
+        let id = entries[idx].id;
         if let Some(item) = state_for_hover.get_item(id) {
             if let Some(text) = item.content_text {
                 #[cfg(target_os = "windows")]
@@ -330,6 +366,17 @@ fn main() {
             use slint::ComponentHandle;
             let current = app.get_settings_visible();
             app.set_settings_visible(!current);
+            // If we are hiding the settings (was visible -> now hidden), try to
+            // minimize the process working set so Task Manager shows reduced memory.
+            if current {
+                let before = core::memory::MemoryMonitor::new().update();
+                let success = core::memory::MemoryMonitor::minimize_working_set();
+                let after = core::memory::MemoryMonitor::new().update();
+                eprintln!("[memory] Settings closed: {} -> {} (minimize ok={})",
+                    core::memory::MemoryMonitor::format_memory(before),
+                    core::memory::MemoryMonitor::format_memory(after),
+                    success);
+            }
         }
     });
 

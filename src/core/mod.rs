@@ -9,4 +9,5 @@ pub mod tray;
 pub mod window;
 pub mod database;
 pub mod device;
+pub mod memory;
 
