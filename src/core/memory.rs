@@ -2,15 +2,13 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::{Instant, Duration};
 
 #[cfg(target_os = "windows")]
-use windows::Win32::System::ProcessStatus::{GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS};
+use windows::Win32::System::ProcessStatus::GetProcessMemoryInfo;
+#[cfg(target_os = "windows")]
+use windows::Win32::System::ProcessStatus::PROCESS_MEMORY_COUNTERS;
 #[cfg(target_os = "windows")]
 use windows::Win32::Foundation::CloseHandle;
 #[cfg(target_os = "windows")]
 use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION};
-#[cfg(target_os = "windows")]
-use windows::Win32::System::ProcessStatus::EmptyWorkingSet;
-#[cfg(target_os = "windows")]
-use windows::Win32::System::Threading::GetCurrentProcess;
 
 pub struct MemoryMonitor {
     start_time: Instant,
@@ -105,24 +103,6 @@ impl MemoryMonitor {
         } else {
             format!("{} B", bytes)
         }
-    }
-}
-
-impl MemoryMonitor {
-    /// Try to release the process working set back to the OS (Windows only).
-    /// Returns true on success.
-    #[cfg(target_os = "windows")]
-    pub fn minimize_working_set() -> bool {
-        unsafe {
-            let handle = GetCurrentProcess();
-            EmptyWorkingSet(handle).is_ok()
-        }
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    pub fn minimize_working_set() -> bool {
-        // No-op on non-windows platforms
-        false
     }
 }
 

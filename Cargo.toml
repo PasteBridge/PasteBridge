@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-slint = { version = "1.9", default-features = false, features = ["std", "backend-winit", "renderer-skia", "compat-1-2"] }
+slint = { path = "./slint/api/rs/slint", default-features = false, features = ["std", "backend-winit", "renderer-skia", "compat-1-2", "raw-window-handle-06"] }
 global-hotkey = "0.6"
 clipboard-win = "5.4"
 arboard = "3.4"
@@ -20,7 +20,8 @@ window-vibrancy = "0.7.1"
 tray-icon = "0.14"
 
 [build-dependencies]
-slint-build = "1.9"
+slint-build = { path = "./slint/api/rs/build" }
+cc = "1.0"
 
 [profile.release]
 opt-level = "z"     # 优化大小

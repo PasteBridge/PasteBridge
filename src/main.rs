@@ -1,4 +1,4 @@
-﻿slint::include_modules!();
+slint::include_modules!();
 
 slint::slint! {
     export component DummyWindow inherits Window {
@@ -44,7 +44,7 @@ mod window_util {
 }
 
 fn main() {
-    // Set backend and style (use Skia renderer for D3D on Windows)
+    // Set backend to Skia renderer for full feature support including Chinese text
     std::env::set_var("SLINT_BACKEND", "winit-skia");
     std::env::set_var("SLINT_STYLE", "fluent");
     
@@ -73,7 +73,17 @@ fn main() {
     // Create and setup app window
     let app = AppWindow::new().unwrap();
     let app_weak = app.as_weak();
-    app.window().set_size(slint::LogicalSize::new(HIDDEN_WINDOW_SIZE, HIDDEN_WINDOW_SIZE));
+    
+    // Set initial window size and position
+    app.window().set_size(slint::LogicalSize::new(WINDOW_WIDTH, WINDOW_HEIGHT));
+    let win_w = WINDOW_WIDTH as i32;
+    let win_h = WINDOW_HEIGHT as i32;
+    let screen_w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
+    let screen_h = unsafe { GetSystemMetrics(SM_CYSCREEN) };
+    let x = (screen_w - win_w) / 2;
+    let y = (((screen_h as f64) * 0.618) - (win_h as f64) * 0.233) as i32;
+    let _ = app.window().set_position(slint::PhysicalPosition::new(x, y));
+    tray::IS_VISIBLE.store(true, Ordering::SeqCst);
     
     // Single source of truth: store both text and IDs together
     use std::sync::Arc;
@@ -174,6 +184,22 @@ fn main() {
     // Apply window effects (blur, shadow)
     #[cfg(target_os = "windows")]
     window_effects::apply_window_effects();
+    
+    // Wait for window effects to be ready and fade in
+    #[cfg(target_os = "windows")]
+    {
+        let app_for_fade = app_weak.clone();
+        std::thread::spawn(move || {
+            window_effects::wait_for_window_effects_ready();
+            let _ = slint::invoke_from_event_loop(move || {
+                let hwnd_isize = window_effects::APP_HWND.load(Ordering::SeqCst);
+                if hwnd_isize != 0 {
+                    let hwnd = windows::Win32::Foundation::HWND(hwnd_isize as *mut std::ffi::c_void);
+                    window_effects::fade_in(hwnd);
+                }
+            });
+        });
+    }
     
     // Setup global hotkey (Ctrl+Alt+V, fallback Ctrl+Alt+B)
     let manager = GlobalHotKeyManager::new().unwrap();
@@ -359,6 +385,11 @@ fn main() {
         }
     });
 
+    app.on_quit_app(|| {
+        eprintln!("Quit requested, exiting application...");
+        std::process::exit(0);
+    });
+
     // Toggle settings callback
     let app_for_settings = app.as_weak();
     app.on_toggle_settings(move || {
@@ -366,16 +397,9 @@ fn main() {
             use slint::ComponentHandle;
             let current = app.get_settings_visible();
             app.set_settings_visible(!current);
-            // If we are hiding the settings (was visible -> now hidden), try to
-            // minimize the process working set so Task Manager shows reduced memory.
+            // When hiding settings, ask the renderer to discard stale cached data.
             if current {
-                let before = core::memory::MemoryMonitor::new().update();
-                let success = core::memory::MemoryMonitor::minimize_working_set();
-                let after = core::memory::MemoryMonitor::new().update();
-                eprintln!("[memory] Settings closed: {} -> {} (minimize ok={})",
-                    core::memory::MemoryMonitor::format_memory(before),
-                    core::memory::MemoryMonitor::format_memory(after),
-                    success);
+                app.window().request_redraw();
             }
         }
     });

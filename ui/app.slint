@@ -1,8 +1,26 @@
 import { ScrollView } from "std-widgets.slint";
 import { ThemeManager, DarkTheme, LightTheme } from "themes.slint";
 
+export struct IssueData {
+    id: int,
+    title: string,
+    author: string,
+    date: string,
+    milestone: string,
+}
+
+export struct VersionData {
+    id: int,
+    parent_id: int,
+    content_text: string,
+    version_number: int,
+    created_at: string,
+    comment: string,
+}
+
 export component AppWindow inherits Window {
     title: "PasteBridge";
+    // font-family: "Microsoft YaHei, PingFang SC, SimHei, Noto Sans CJK SC, sans-serif";
     preferred-width: 280px;
     preferred-height: 396px;
     min-width: 200px;
@@ -16,6 +34,7 @@ export component AppWindow inherits Window {
 
     callback minimize-window();
     callback hide-window();
+    callback quit-app();
     callback start-drag();
     callback new-clipboard-entry(text: string);
     callback copy-item(index: int);
@@ -25,12 +44,24 @@ export component AppWindow inherits Window {
     callback show-hover-tooltip-index(index: int);
     callback hide-hover-tooltip();
     callback toggle-theme();
+    callback toggle-issues();
+    callback select-issue(index: int);
+    callback toggle-versions();
+    callback save-version(index: int);
+    callback restore-version(version_id: int);
+    callback delete-version(version_id: int);
+    callback load-versions(parent_id: int);
 
     in property <[string]> clipboard-history;
     in property <string> placeholder-text;
+    in property <[IssueData]> issues;
+    in property <[VersionData]> versions;
+    in property <int> current-parent-id: -1;
     
     // Settings panel visibility
     in-out property <bool> settings-visible: false;
+    in-out property <bool> issues-visible: false;
+    in-out property <bool> versions-visible: false;
 
     // Copied 弹出提示
     popup := PopupWindow {
@@ -201,15 +232,388 @@ export component AppWindow inherits Window {
                 }
             }
 
+            // Issues panel - shows GitHub issues from slint-ui/slint
+            if root.issues-visible: Rectangle {
+                background: ThemeManager.is-dark ? rgba(30, 30, 30, 0.95) : rgba(255, 255, 255, 0.98);
+                
+                VerticalLayout {
+                    padding: 16px;
+                    spacing: 12px;
+                    
+                    // Header
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Text {
+                            text: "GitHub Issues";
+                            color: ThemeManager.is-dark ? #ffffff : #1a1a1a;
+                            font-size: 18px;
+                            font-weight: 600;
+                            horizontal-alignment: left;
+                            vertical-alignment: center;
+                        }
+                        
+                        Rectangle { vertical-stretch: 0; horizontal-stretch: 1; }
+                        
+                        // Close button - returns to history
+                        Rectangle {
+                            width: 28px;
+                            height: 28px;
+                            background: ThemeManager.is-dark ? rgba(255, 255, 255, 0.1) : rgba(0, 0, 0, 0.05);
+                            border-radius: 4px;
+                            
+                            Text {
+                                text: "←";
+                                color: ThemeManager.is-dark ? #ffffff : #1a1a1a;
+                                font-size: 14px;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                            
+                            TouchArea {
+                                width: 100%;
+                                height: 100%;
+                                clicked => {
+                                    root.toggle-issues();
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Divider
+                    Rectangle {
+                        height: 1px;
+                        background: ThemeManager.is-dark ? rgba(255, 255, 255, 0.1) : rgba(0, 0, 0, 0.1);
+                    }
+                    
+                    // Issues list
+                    ScrollView {
+                        vertical-stretch: 1;
+                        horizontal-scrollbar-policy: always-off;
+                        vertical-scrollbar-policy: always-off;
+                        
+                        VerticalLayout {
+                            spacing: 8px;
+                            
+                            for issue[index] in root.issues: Rectangle {
+                                height: 56px;
+                                background: ThemeManager.is-dark ? rgba(61, 61, 61, 0.4) : rgba(255, 255, 255, 0.8);
+                                border-radius: 6px;
+                                border-width: 0px;
+                                border-color: ThemeManager.is-dark ? rgba(255, 255, 255, 0.1) : rgba(0, 0, 0, 0.05);
+                                
+                                property <bool> animated: false;
+                                
+                                Timer {
+                                    interval: 30ms * index;
+                                    running: !animated;
+                                    triggered => {
+                                        animated = true;
+                                    }
+                                }
+                                
+                                opacity: 0.0;
+                                animate opacity {
+                                    duration: 250ms;
+                                    easing: ease-out;
+                                }
+                                
+                                states [
+                                    visible when animated: {
+                                        opacity: 1.0;
+                                    }
+                                ]
+                                
+                                VerticalLayout {
+                                    padding-left: 12px;
+                                    padding-right: 12px;
+                                    padding-top: 8px;
+                                    padding-bottom: 8px;
+                                    spacing: 4px;
+                                    
+                                    HorizontalLayout {
+                                        Text {
+                                            text: "#" + issue.id;
+                                            color: #0078d4;
+                                            font-size: 12px;
+                                            font-weight: 500;
+                                        }
+                                        Text {
+                                            text: issue.title;
+                                            color: ThemeManager.is-dark ? #ffffff : #1a1a1a;
+                                            font-size: 12px;
+                                            font-weight: 300;
+                                            horizontal-alignment: left;
+                                        }
+                                    }
+                                    
+                                    HorizontalLayout {
+                                        spacing: 8px;
+                                        Text {
+                                            text: issue.author != "" ? "@" + issue.author : "unknown";
+                                            color: ThemeManager.is-dark ? rgba(255, 255, 255, 0.5) : rgba(0, 0, 0, 0.4);
+                                            font-size: 10px;
+                                        }
+                                        if issue.date != "":
+                                            Text {
+                                                text: issue.date;
+                                                color: ThemeManager.is-dark ? rgba(255, 255, 255, 0.5) : rgba(0, 0, 0, 0.4);
+                                                font-size: 10px;
+                                            }
+                                        if issue.milestone != "":
+                                            Rectangle {
+                                                padding-left: 6px;
+                                                padding-right: 6px;
+                                                padding-top: 2px;
+                                                padding-bottom: 2px;
+                                                background: #0078d4;
+                                                border-radius: 4px;
+                                                Text {
+                                                    text: issue.milestone;
+                                                    color: #ffffff;
+                                                    font-size: 10px;
+                                                }
+                                            }
+                                    }
+                                }
+                                
+                                TouchArea {
+                                    width: 100%;
+                                    height: 100%;
+                                    clicked => {
+                                        root.select-issue(index);
+                                    }
+                                }
+                            }
+                            
+                            if root.issues.length == 0:
+                                VerticalLayout {
+                                    padding: 20px;
+                                    Text {
+                                        text: "Loading issues...";
+                                        color: ThemeManager.is-dark ? rgba(255, 255, 255, 0.5) : rgba(0, 0, 0, 0.4);
+                                        font-size: 12px;
+                                        horizontal-alignment: center;
+                                    }
+                                }
+                        }
+                    }
+                }
+            }
+
+            // Versions panel - version history management
+            if root.versions-visible: Rectangle {
+                background: ThemeManager.is-dark ? rgba(30, 30, 30, 0.95) : rgba(255, 255, 255, 0.98);
+                
+                VerticalLayout {
+                    padding: 16px;
+                    spacing: 12px;
+                    
+                    // Header
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Text {
+                            text: "版本历史";
+                            color: ThemeManager.is-dark ? #ffffff : #1a1a1a;
+                            font-size: 18px;
+                            font-weight: 600;
+                            horizontal-alignment: left;
+                            vertical-alignment: center;
+                        }
+                        
+                        Rectangle { vertical-stretch: 0; horizontal-stretch: 1; }
+                        
+                        // Close button - returns to history
+                        Rectangle {
+                            width: 28px;
+                            height: 28px;
+                            background: ThemeManager.is-dark ? rgba(255, 255, 255, 0.1) : rgba(0, 0, 0, 0.05);
+                            border-radius: 4px;
+                            
+                            Text {
+                                text: "←";
+                                color: ThemeManager.is-dark ? #ffffff : #1a1a1a;
+                                font-size: 14px;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                            
+                            TouchArea {
+                                width: 100%;
+                                height: 100%;
+                                clicked => {
+                                    root.toggle-versions();
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Divider
+                    Rectangle {
+                        height: 1px;
+                        background: ThemeManager.is-dark ? rgba(255, 255, 255, 0.1) : rgba(0, 0, 0, 0.1);
+                    }
+                    
+                    // Versions list
+                    ScrollView {
+                        vertical-stretch: 1;
+                        horizontal-scrollbar-policy: always-off;
+                        vertical-scrollbar-policy: always-off;
+                        
+                        VerticalLayout {
+                            spacing: 8px;
+                            
+                            for version[index] in root.versions: Rectangle {
+                                height: 64px;
+                                background: ThemeManager.is-dark ? rgba(61, 61, 61, 0.4) : rgba(255, 255, 255, 0.8);
+                                border-radius: 6px;
+                                border-width: 0px;
+                                border-color: ThemeManager.is-dark ? rgba(255, 255, 255, 0.1) : rgba(0, 0, 0, 0.05);
+                                
+                                property <bool> animated: false;
+                                
+                                Timer {
+                                    interval: 30ms * index;
+                                    running: !animated;
+                                    triggered => {
+                                        animated = true;
+                                    }
+                                }
+                                
+                                opacity: 0.0;
+                                animate opacity {
+                                    duration: 250ms;
+                                    easing: ease-out;
+                                }
+                                
+                                states [
+                                    visible when animated: {
+                                        opacity: 1.0;
+                                    }
+                                ]
+                                
+                                VerticalLayout {
+                                    padding-left: 12px;
+                                    padding-right: 12px;
+                                    padding-top: 8px;
+                                    padding-bottom: 8px;
+                                    spacing: 4px;
+                                    
+                                    HorizontalLayout {
+                                        Text {
+                                            text: "v" + version.version_number;
+                                            color: #0078d4;
+                                            font-size: 12px;
+                                            font-weight: 500;
+                                        }
+                                        if version.comment != "":
+                                            Text {
+                                                text: version.comment;
+                                                color: ThemeManager.is-dark ? rgba(255, 255, 255, 0.7) : rgba(0, 0, 0, 0.7);
+                                                font-size: 12px;
+                                                horizontal-alignment: left;
+                                            }
+                                    }
+                                    
+                                    HorizontalLayout {
+                                        spacing: 4px;
+                                        Text {
+                                            text: version.content_text;
+                                            color: ThemeManager.is-dark ? rgba(255, 255, 255, 0.5) : rgba(0, 0, 0, 0.4);
+                                            font-size: 11px;
+                                            font-weight: 700;
+                                            overflow: elide;
+                                        }
+                                    }
+                                    
+                                    HorizontalLayout {
+                                        spacing: 8px;
+                                        Text {
+                                            text: version.created_at;
+                                            color: ThemeManager.is-dark ? rgba(255, 255, 255, 0.4) : rgba(0, 0, 0, 0.3);
+                                            font-size: 10px;
+                                        }
+                                    }
+                                }
+                                
+                                // Actions
+                                HorizontalLayout {
+                                    padding-right: 8px;
+                                    spacing: 4px;
+                                    alignment: end;
+                                    
+                                    // Restore button
+                                    Rectangle {
+                                        width: 22px;
+                                        height: 22px;
+                                        background: #0078d4;
+                                        border-radius: 4px;
+                                        
+                                        Text {
+                                            text: "↺";
+                                            color: #ffffff;
+                                            font-size: 12px;
+                                            horizontal-alignment: center;
+                                            vertical-alignment: center;
+                                        }
+                                        
+                                        TouchArea {
+                                            width: 100%;
+                                            height: 100%;
+                                            clicked => {
+                                                root.restore-version(version.id);
+                                            }
+                                        }
+                                    }
+                                    
+                                    // Delete button
+                                    Rectangle {
+                                        width: 22px;
+                                        height: 22px;
+                                        background: ThemeManager.is-dark ? #555555 : #e0e0e0;
+                                        border-radius: 4px;
+                                        
+                                        Text {
+                                            text: "✕";
+                                            color: ThemeManager.is-dark ? #ffffff : #1a1a1a;
+                                            font-size: 12px;
+                                            horizontal-alignment: center;
+                                            vertical-alignment: center;
+                                        }
+                                        
+                                        TouchArea {
+                                            width: 100%;
+                                            height: 100%;
+                                            clicked => {
+                                                root.delete-version(version.id);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            if root.versions.length == 0:
+                                VerticalLayout {
+                                    padding: 20px;
+                                    Text {
+                                        text: "暂无版本记录";
+                                        color: ThemeManager.is-dark ? rgba(255, 255, 255, 0.5) : rgba(0, 0, 0, 0.4);
+                                        font-size: 12px;
+                                        horizontal-alignment: center;
+                                    }
+                                }
+                        }
+                    }
+                }
+            }
+
             // History panel - contains: ScrollView, divider, search box
-            if !root.settings-visible: VerticalLayout {
+            if !root.settings-visible && !root.issues-visible && !root.versions-visible: VerticalLayout {
                 spacing: 0px;
                 
-                // Clipboard history list
-                ScrollView {
+                // Clipboard history list with smooth flicking
+                Flickable {
                     vertical-stretch: 1;
-                    horizontal-scrollbar-policy: always-off;
-                    vertical-scrollbar-policy: always-off;
+                    interactive: true;
 
                     VerticalLayout {
                         padding-left: 0px;
@@ -256,15 +660,19 @@ export component AppWindow inherits Window {
 
                         //列表项
                         for item[index] in root.clipboard-history: Rectangle {
-                            // 伪 line-height: 13px 字号, 2px 额外间距, 15px 行高
+                            // 伪 line-height 实现: 13px 字号, 4px 行间距, 18px 行高
                             property <length> item-font-size: 13px;
-                            property <length> item-line-height: 15px;
-                            property <length> item-line-spacing: 2px;
+                            property <length> item-line-height: 18px;   // 每行总高度（包含行间距）
+                            property <length> item-line-spacing: 4px;   // 行与行之间的间距
                             
-                            // 文字容器最大两行高度
-                            property <length> item-text-height: item-line-height * 2 + item-line-spacing;
+                            // 计算实际文字区域高度 (两行)
+                            // 第一行: item-line-height = 18px
+                            // 第二行: item-font-size + item-line-spacing = 13px + 4px = 17px
+                            // 总高度 = 18px + 17px = 35px
+                            property <length> item-text-height: item-line-height + item-font-size + item-line-spacing;
                             
-                            height: item-text-height + 12px + 12px; // 上下 padding
+                            // 总高度 = 文字区域 + 上下 padding (各 12px)
+                            height: item-text-height + 12px + 12px;
 
                             background: ta.pressed ? (ThemeManager.is-dark ? rgba(120, 120, 120, 0.8) : rgba(220, 220, 220, 0.95)) : 
                                         (ta.has-hover ? (ThemeManager.is-dark ? rgba(90, 90, 90, 0.6) : rgba(240, 240, 240, 0.9)) : 
@@ -341,49 +749,20 @@ export component AppWindow inherits Window {
                                 }
                             ]
 
-                            // 文字容器 - 使用两个 Rectangle (带 clip) 包裹 Text 实现两行限制
-                            VerticalLayout {
-                                padding-left: 12px;
-                                padding-right: 12px;
-                                padding-top: 6px;
-                                padding-bottom: 6px;
-                                spacing: item-line-spacing; // 行间距
-                                alignment: start;
+                            // 文字容器 - 使用 clip + 固定高度实现两行限制
+                            Rectangle {
+                                height: item-text-height;
+                                clip: true;
                                 
-                                // 第一行文字容器 - clip 截断
-                                Rectangle {
-                                    height: item-line-height;
-                                    clip: true;
-                                    
-                                    Text {
-                                        text: item;
-                                        color: ThemeManager.is-dark ? #ffffff : #1a1a1a;
-                                        font-size: item-font-size;
-                                        vertical-alignment: top;
-                                        font-weight: 300;
-                                        // 自动换行
-                                        wrap: word-wrap;
-                                        // 限制最大宽度
-                                        width: parent.width;
-                                    }
-                                }
-                                
-                                // 第二行文字容器 - clip 截断
-                                Rectangle {
-                                    height: item-line-height;
-                                    clip: true;
-                                    
-                                    Text {
-                                        // 第二行显示第一行截断后的溢出部分
-                                        // 由于 Slint 没有直接的字符索引获取，这里显示空文本
-                                        // 实际效果由第一行的 wrap 和 clip 控制
-                                        text: "";
-                                        font-size: item-font-size;
-                                        color: ThemeManager.is-dark ? #ffffff : #1a1a1a;
-                                        font-weight: 300;
-                                        wrap: word-wrap;
-                                        width: parent.width;
-                                    }
+                                Text {
+                                    text: item;
+                                    color: ThemeManager.is-dark ? #ffffff : #1a1a1a;
+                                    font-size: item-font-size;
+                                    font-weight: 300;
+                                    wrap: word-wrap;
+                                    width: parent.width - 24px;
+                                    x: 12px;
+                                    y: 2px;
                                 }
                             }
                         }
@@ -454,10 +833,77 @@ export component AppWindow inherits Window {
                 padding-bottom: 12px;
                 spacing: 12px;
 
-                Image {
-                    source: @image-url("favicon.png");
+                // 可点击的变换按钮 - 等号变X
+                Rectangle {
                     width: 26px;
                     height: 26px;
+                    background: transparent;
+
+                    // 第一条线 - 初始=状态，动画后变成/形状
+                    line1 := Rectangle {
+                        x: 3px;
+                        y: 8px;
+                        width: 20px;
+                        height: 2px;
+                        background: ThemeManager.is-dark ? #ffffff : #1a1a1a;
+                        opacity: 1.0;
+                        transform-origin: { x: 10px, y: 1px };
+                        transform-rotation: 0deg;
+                        states [
+                            state-open when root.settings-visible: {
+                                transform-rotation: 30deg;
+                                out {
+                                    animate transform-rotation {
+                                        duration: 300ms;
+                                        easing: ease-out;
+                                    }
+                                }
+                                in {
+                                    animate transform-rotation {
+                                        duration: 300ms;
+                                        easing: ease-out;
+                                    }
+                                }
+                            }
+                        ]
+                    }
+
+                    // 第二条线 - 初始=状态，动画后变成\形状
+                    line2 := Rectangle {
+                        x: 3px;
+                        y: 16px;
+                        width: 20px;
+                        height: 2px;
+                        background: ThemeManager.is-dark ? #ffffff : #1a1a1a;
+                        opacity: 1.0;
+                        transform-origin: { x: 10px, y: 1px };
+                        transform-rotation: 0deg;
+                        states [
+                            state-open when root.settings-visible: {
+                                transform-rotation: -30deg;
+                                out {
+                                    animate transform-rotation {
+                                        duration: 300ms;
+                                        easing: ease-out;
+                                    }
+                                }
+                                in {
+                                    animate transform-rotation {
+                                        duration: 300ms;
+                                        easing: ease-out;
+                                    }
+                                }
+                            }
+                        ]
+                    }
+
+                    TouchArea {
+                        width: 100%;
+                        height: 100%;
+                        clicked => {
+                            root.toggle-settings();
+                        }
+                    }
                 }
 
                 Image {
@@ -537,7 +983,7 @@ export component AppWindow inherits Window {
                         width: 100%;
                         height: 100%;
                         clicked => {
-                            root.hide-window();
+                            root.quit-app();
                         }
                     }
                 }
@@ -562,6 +1008,54 @@ export component AppWindow inherits Window {
                         height: 100%;
                         clicked => {
                             root.toggle-settings();
+                        }
+                    }
+                }
+
+                // GitHub Issues button
+                Rectangle {
+                    width: 24px;
+                    height: 24px;
+                    background: ThemeManager.is-dark ? #333333 : #e8e8e8;
+                    border-radius: 4px;
+
+                    Text {
+                        text: "📋";
+                        color: ThemeManager.is-dark ? #ffffff : #1a1a1a;
+                        font-size: 14px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    TouchArea {
+                        width: 100%;
+                        height: 100%;
+                        clicked => {
+                            root.toggle-issues();
+                        }
+                    }
+                }
+
+                // Version history button
+                Rectangle {
+                    width: 24px;
+                    height: 24px;
+                    background: ThemeManager.is-dark ? #5c4033 : #d4a574;
+                    border-radius: 4px;
+
+                    Text {
+                        text: "📜";
+                        color: ThemeManager.is-dark ? #ffffff : #1a1a1a;
+                        font-size: 14px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    TouchArea {
+                        width: 100%;
+                        height: 100%;
+                        clicked => {
+                            root.toggle-versions();
                         }
                     }
                 }

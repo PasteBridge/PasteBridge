@@ -1,4 +1,4 @@
-﻿use std::sync::atomic::{AtomicIsize, AtomicBool, Ordering};
+use std::sync::atomic::{AtomicIsize, AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 
@@ -68,28 +68,16 @@ impl raw_window_handle::HasWindowHandle for WinHandle {
 }
 
 #[cfg(target_os = "windows")]
-pub fn apply_window_effects() {
+pub fn apply_window_effects_from_handle(hwnd: windows::Win32::Foundation::HWND) {
+    let hwnd_value = hwnd.0 as isize;
     thread::spawn(move || {
         use std::num::NonZeroIsize;
 
         unsafe {
-            use windows::Win32::UI::WindowsAndMessaging::FindWindowW;
-            use windows::Win32::Foundation::HWND;
-            use windows::core::PCWSTR;
+            let hwnd = windows::Win32::Foundation::HWND(hwnd_value as *mut std::ffi::c_void);
+            APP_HWND.store(hwnd_value, Ordering::SeqCst);
 
-            let mut hwnd = HWND::default();
-            let title: Vec<u16> = "PasteBridge\0".encode_utf16().collect();
-
-            while hwnd.is_invalid() {
-                hwnd = FindWindowW(PCWSTR::null(), PCWSTR(title.as_ptr())).unwrap_or_default();
-                if hwnd.is_invalid() {
-                    thread::sleep(Duration::from_millis(100));
-                }
-            }
-
-            APP_HWND.store(hwnd.0 as isize, Ordering::SeqCst);
-
-            let handle = raw_window_handle::Win32WindowHandle::new(NonZeroIsize::new(hwnd.0 as isize).unwrap());
+            let handle = raw_window_handle::Win32WindowHandle::new(NonZeroIsize::new(hwnd_value).unwrap());
             let raw_handle = raw_window_handle::RawWindowHandle::Win32(handle);
 
             struct WinHandle(raw_window_handle::RawWindowHandle);
@@ -127,6 +115,78 @@ pub fn apply_window_effects() {
             
             // 标记窗口效果已准备好
             WINDOW_EFFECTS_READY.store(true, Ordering::SeqCst);
+        }
+    });
+}
+
+// 保留原有的函数，但改进查找逻辑
+#[cfg(target_os = "windows")]
+pub fn apply_window_effects() {
+    thread::spawn(move || {
+        unsafe {
+            use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, EnumWindows, GetWindowTextW, GetClassNameW, WNDENUMPROC};
+            use windows::Win32::Foundation::{HWND, BOOL, LPARAM};
+            use windows::core::PCWSTR;
+
+            let mut found_hwnd = HWND::default();
+            
+            // 使用一个全局可变变量来存储找到的窗口句柄
+            static mut FOUND_HWND: HWND = HWND(std::ptr::null_mut());
+            
+            // 使用 EnumWindows 来更精确地查找我们的窗口
+            unsafe extern "system" fn enum_windows_proc(hwnd: HWND, _lparam: LPARAM) -> BOOL {
+                // 获取窗口标题
+                let mut title_buf = [0u16; 256];
+                let title_len = GetWindowTextW(hwnd, &mut title_buf);
+                let title = String::from_utf16_lossy(&title_buf[..title_len as usize]);
+                
+                // 获取窗口类名
+                let mut class_buf = [0u16; 256];
+                let class_len = GetClassNameW(hwnd, &mut class_buf);
+                let class_name = String::from_utf16_lossy(&class_buf[..class_len as usize]);
+                
+                // 检查窗口是否符合我们的条件
+                // 我们不仅检查标题，还检查类名，因为文件资源管理器的类名通常是 CabinetWClass 或类似的
+                if title == "PasteBridge" && !class_name.contains("Cabinet") && !class_name.contains("Explore") {
+                    FOUND_HWND = hwnd;
+                    return BOOL(0); // 停止枚举
+                }
+                
+                BOOL(1) // 继续枚举
+            }
+
+            while found_hwnd.is_invalid() {
+                // 首先重置全局变量
+                FOUND_HWND = HWND::default();
+                
+                // 尝试 FindWindowW 作为快速路径
+                let title: Vec<u16> = "PasteBridge\0".encode_utf16().collect();
+                found_hwnd = FindWindowW(PCWSTR::null(), PCWSTR(title.as_ptr())).unwrap_or_default();
+                
+                // 验证找到的窗口类名
+                if !found_hwnd.is_invalid() {
+                    let mut class_buf = [0u16; 256];
+                    let class_len = GetClassNameW(found_hwnd, &mut class_buf);
+                    let class_name = String::from_utf16_lossy(&class_buf[..class_len as usize]);
+                    
+                    // 如果类名表明是文件资源管理器，我们就忽略这个窗口
+                    if class_name.contains("Cabinet") || class_name.contains("Explore") {
+                        found_hwnd = HWND::default();
+                    }
+                }
+                
+                if found_hwnd.is_invalid() {
+                    // 如果快速路径失败或被拒绝，使用 EnumWindows 更精确地查找
+                    EnumWindows(Some(enum_windows_proc), LPARAM(0));
+                    found_hwnd = FOUND_HWND;
+                }
+                
+                if found_hwnd.is_invalid() {
+                    thread::sleep(Duration::from_millis(100));
+                }
+            }
+
+            apply_window_effects_from_handle(found_hwnd);
         }
     });
 }
