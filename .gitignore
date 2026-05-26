@@ -1,52 +1,11 @@
-# === OS / Editor ===
-.DS_Store
-Thumbs.db
-*.swp
-*.swo
-*~
-.idea/
-*.iml
-.vscode/
-!.vscode/settings.json
-!.vscode/launch.json
-!.vscode/c_cpp_properties.json
 pastebridge.code-workspace
+/test
 
-# === Build / Cargo ===
+# Added by cargo
+
 /target
-/debug
-/release
-Cargo.lock
-*.rlib
-*.pdb
-build-script-build*
-freetype2/
-Skia/
-
-# === vcpkg (third-party dependency manager) ===
-/vcpkg/
-/vcpkg-skia-imports/
-
-# === Test / Debug artifacts ===
-/scroll_test/
-/stderr_test.log
-/stderr_test2.log
-/refact/
-/.traefik/
-*.log
-
-# === Local config (may contain secrets) ===
-/.env
-/.env.*
-/.config/
-
-# === Web (backend PHP artifacts) ===
-/web/data/
-/web/font-awesome-4.7.0/
-/web/materialize/
-/web/pic/
-/web/js/
-
-# === Slint UI ===
-/ui/*.bak
-/old_app.slint
+.refact/buddy/memory_ops.jsonl
+.refact/buddy/state.json
+.refact/buddy/state.json
+.refact/buddy/runtime_queue.jsonl
+.refact/buddy/memory_ops.jsonl
