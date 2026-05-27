@@ -22,6 +22,44 @@ use global_hotkey::{GlobalHotKeyManager, hotkey::{HotKey, Modifiers, Code}};
 use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
 
 #[cfg(target_os = "windows")]
+fn get_focused_caret_screen_pos() -> Option<(i32, i32)> {
+    unsafe {
+        use windows::Win32::UI::WindowsAndMessaging::{
+            GetForegroundWindow, GetGUIThreadInfo, GetWindowThreadProcessId,
+            GetWindowRect, GUITHREADINFO, GUI_CARETBLINKING,
+        };
+
+        let fg_hwnd = GetForegroundWindow();
+        if fg_hwnd.is_invalid() {
+            return None;
+        }
+
+        let thread_id = GetWindowThreadProcessId(fg_hwnd, None);
+        let mut info = GUITHREADINFO {
+            cbSize: std::mem::size_of::<GUITHREADINFO>() as u32,
+            ..Default::default()
+        };
+
+        if GetGUIThreadInfo(thread_id, &mut info).is_ok() {
+            if info.flags.contains(GUI_CARETBLINKING) && !info.hwndCaret.is_invalid() {
+                let mut window_rect = std::mem::zeroed();
+                if GetWindowRect(info.hwndCaret, &mut window_rect).is_ok() {
+                    let screen_x = window_rect.left + info.rcCaret.left;
+                    let screen_y = window_rect.top + info.rcCaret.top;
+                    return Some((screen_x, screen_y));
+                }
+            }
+        }
+        None
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn get_focused_caret_screen_pos() -> Option<(i32, i32)> {
+    None
+}
+
+#[cfg(target_os = "windows")]
 mod window_util {
     use std::os::raw::c_void;
 
@@ -36,6 +74,32 @@ mod window_util {
             ReleaseCapture();
             SendMessageW(hwnd, 0x112, 0xF012, 0);
             SendMessageW(hwnd, 0x0202, 0, 0);
+        }
+    }
+}
+
+fn calc_window_position(app: &AppWindow, win_w: i32, win_h: i32) -> slint::PhysicalPosition {
+    // 优先检测外部输入焦点，有焦点则定位在光标右侧 10px
+    if let Some((caret_x, caret_y)) = get_focused_caret_screen_pos() {
+        return slint::PhysicalPosition::new(caret_x + 10, caret_y);
+    }
+
+    // 无外部输入焦点，使用用户选择的模式
+    let mode = app.get_window_position_mode();
+    let screen_w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
+    let screen_h = unsafe { GetSystemMetrics(SM_CYSCREEN) };
+
+    match mode {
+        0 => {
+            let x = (screen_w - win_w) / 2;
+            let y = (((screen_h as f64) * 0.618) - (win_h as f64) * 0.233) as i32;
+            slint::PhysicalPosition::new(x, y)
+        }
+        _ => {
+            let (cursor_x, cursor_y) = window_effects::get_cursor_pos();
+            let x = cursor_x - win_w / 2;
+            let y = cursor_y - win_h / 2;
+            slint::PhysicalPosition::new(x, y)
         }
     }
 }
@@ -59,20 +123,21 @@ fn main() {
         .map(|p| std::path::PathBuf::from(p).join("PasteBridge"))
         .unwrap_or_else(|_| std::path::PathBuf::from("."));
 
-    let state = paste_bridge_core::state::AppState::new(&app_data_dir, 10);
+    let state = paste_bridge_core::state::AppState::new(&app_data_dir, usize::MAX);
 
     let app = AppWindow::new().unwrap();
     let app_weak = app.as_weak();
 
     app.window().set_size(slint::LogicalSize::new(WINDOW_WIDTH, WINDOW_HEIGHT));
-    let win_w = WINDOW_WIDTH as i32;
-    let win_h = WINDOW_HEIGHT as i32;
-    let screen_w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
-    let screen_h = unsafe { GetSystemMetrics(SM_CYSCREEN) };
-    let x = (screen_w - win_w) / 2;
-    let y = (((screen_h as f64) * 0.618) - (win_h as f64) * 0.233) as i32;
-    let _ = app.window().set_position(slint::PhysicalPosition::new(x, y));
+    let pos = calc_window_position(&app, WINDOW_WIDTH as i32, WINDOW_HEIGHT as i32);
+    let _ = app.window().set_position(pos);
     tray::IS_VISIBLE.store(true, Ordering::SeqCst);
+
+    let popup_tooltip = std::sync::Arc::new(std::sync::Mutex::new(None::<PopupTooltipWindow>));
+    let popup_tooltip_clone = popup_tooltip.clone();
+    let popup_weak_holder: std::sync::Arc<std::sync::Mutex<Option<slint::Weak<PopupTooltipWindow>>>> =
+        std::sync::Arc::new(std::sync::Mutex::new(None));
+    let popup_weak_holder_clone = popup_weak_holder.clone();
 
     use std::sync::Arc;
     #[derive(Clone)]
@@ -222,13 +287,8 @@ fn main() {
                     } else {
                         // Show: restore size + position + bring to front + fade in
                         app.window().set_size(slint::LogicalSize::new(WINDOW_WIDTH, WINDOW_HEIGHT));
-                        let win_w = WINDOW_WIDTH as i32;
-                        let win_h = WINDOW_HEIGHT as i32;
-                        let screen_w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
-                        let screen_h = unsafe { GetSystemMetrics(SM_CYSCREEN) };
-                        let x = (screen_w - win_w) / 2;
-                        let y = (((screen_h as f64) * 0.618) - (win_h as f64) * 0.233) as i32;
-                        let _ = app.window().set_position(slint::PhysicalPosition::new(x, y));
+                        let pos = calc_window_position(&app, WINDOW_WIDTH as i32, WINDOW_HEIGHT as i32);
+                        let _ = app.window().set_position(pos);
                         tray::IS_VISIBLE.store(true, Ordering::SeqCst);
 
                         let hwnd_isize = window_effects::APP_HWND.load(Ordering::SeqCst);
@@ -310,6 +370,8 @@ fn main() {
 
     let entries_for_hover = clipboard_entries_clone.clone();
     let state_for_hover = state.clone();
+    let popup_for_show = popup_tooltip_clone.clone();
+    let app_weak_for_pos = app_weak.clone();
     app.on_show_hover_tooltip_index(move |index: i32| {
         let idx = index as usize;
         let entries = entries_for_hover.lock().unwrap();
@@ -319,18 +381,78 @@ fn main() {
         let id = entries[idx].id;
         if let Some(item) = state_for_hover.get_item(id) {
             if let Some(text) = item.content_text {
-                #[cfg(target_os = "windows")]
-                {
-                    tooltip::show_hover_tooltip(&text);
+                let popup_lock = popup_for_show.lock().unwrap();
+                if let Some(ref popup) = *popup_lock {
+                    popup.set_content_text(text.into());
+                    popup.set_show_pending(true);
+                    popup.set_show_state(false);
+
+                    if let Some(main_app) = app_weak_for_pos.upgrade() {
+                        let app_pos = main_app.window().position();
+                        let popup_x = app_pos.x - 210;
+                        let popup_y = app_pos.y + 10;
+                        popup.window().set_position(slint::PhysicalPosition::new(popup_x, popup_y));
+                    }
                 }
             }
         }
     });
 
+    let popup_for_hide = popup_tooltip_clone.clone();
+    let popup_weak_for_hide = popup_weak_holder_clone.clone();
     app.on_hide_hover_tooltip(move || {
-        #[cfg(target_os = "windows")]
-        {
-            tooltip::hide_hover_tooltip();
+        let popup_lock = popup_for_hide.lock().unwrap();
+        if let Some(ref popup) = *popup_lock {
+            popup.set_show_pending(false);
+            popup.set_show_state(false);
+        }
+        // After fade-out animation (200ms), truly hide the window to prevent it from
+        // intercepting mouse events on the main window
+        let weak_guard = popup_weak_for_hide.lock().unwrap();
+        if let Some(ref popup_weak) = *weak_guard {
+            let weak_clone = popup_weak.clone();
+            slint::Timer::single_shot(std::time::Duration::from_millis(250), move || {
+                if let Some(p) = weak_clone.upgrade() {
+                    let _ = p.hide();
+                }
+            });
+        }
+    });
+
+    let entries_for_hover2 = clipboard_entries_clone.clone();
+    let state_for_hover2 = state.clone();
+    let popup_for_set = popup_tooltip_clone.clone();
+    let app_weak_for_pos2 = app_weak.clone();
+    app.on_set_hovered_index(move |index: i32| {
+        if index < 0 {
+            let popup_lock = popup_for_set.lock().unwrap();
+            if let Some(ref popup) = *popup_lock {
+                popup.set_show_pending(false);
+                popup.set_show_state(false);
+            }
+        } else {
+            let idx = index as usize;
+            let entries = entries_for_hover2.lock().unwrap();
+            if idx >= entries.len() {
+                return;
+            }
+            let id = entries[idx].id;
+            if let Some(item) = state_for_hover2.get_item(id) {
+                if let Some(text) = item.content_text {
+                    let popup_lock = popup_for_set.lock().unwrap();
+                    if let Some(ref popup) = *popup_lock {
+                        popup.set_content_text(text.into());
+                        popup.set_show_pending(true);
+                        popup.set_show_state(false);
+                        if let Some(main_app) = app_weak_for_pos2.upgrade() {
+                            let app_pos = main_app.window().position();
+                            let popup_x = app_pos.x - 210;
+                            let popup_y = app_pos.y + 10;
+                            popup.window().set_position(slint::PhysicalPosition::new(popup_x, popup_y));
+                        }
+                    }
+                }
+            }
         }
     });
 
@@ -387,6 +509,43 @@ fn main() {
         }
     });
 
+    let state_for_mock = state.clone();
+    let app_for_mock = app.as_weak();
+    let entries_for_mock = clipboard_entries_clone.clone();
+    app.on_add_mock_data(move || {
+        let inserted = state_for_mock.add_mock_data(100);
+        eprintln!("Added {} mock data entries", inserted);
+        
+        let app_clone = app_for_mock.clone();
+        let entries_for_update = entries_for_mock.clone();
+        let state_clone = state_for_mock.clone();
+        let _ = slint::invoke_from_event_loop(move || {
+            if let Some(w) = app_clone.upgrade() {
+                let history = state_clone.get_history();
+                let entries: Vec<ClipboardEntry> = history.iter()
+                    .filter_map(|item| {
+                        item.content_text.clone().map(|text| ClipboardEntry {
+                            text: text.into(),
+                            id: item.id,
+                        })
+                    })
+                    .collect();
+
+                let items: Vec<slint::SharedString> = entries.iter()
+                    .map(|e| e.text.clone())
+                    .collect();
+
+                {
+                    let mut entries_lock = entries_for_update.lock().unwrap();
+                    *entries_lock = entries;
+                }
+
+                let model = std::rc::Rc::new(slint::VecModel::from(items));
+                w.set_clipboard_history(model.into());
+            }
+        });
+    });
+
     let api_state = state.clone();
     std::thread::spawn(move || {
         let mut server = paste_bridge_core::api::ApiServer::new(18792);
@@ -396,6 +555,45 @@ fn main() {
     });
 
     eprintln!("About to run app...");
+
+    {
+        let mut popup_guard = popup_tooltip.lock().unwrap();
+        if popup_guard.is_none() {
+            let popup_win = PopupTooltipWindow::new().unwrap();
+            popup_win.on_hide_window({
+                let popup_win_weak = popup_win.as_weak();
+                move || {
+                    if let Some(p) = popup_win_weak.upgrade() {
+                        p.hide().unwrap();
+                    }
+                }
+            });
+            popup_win.on_on_delay_show({
+                let popup_win_weak = popup_win.as_weak();
+                let app_weak_for_pos = app_weak.clone();
+                move || {
+                    if let Some(popup) = popup_win_weak.upgrade() {
+                        if let Some(main_app) = app_weak_for_pos.upgrade() {
+                            let app_pos = main_app.window().position();
+                            let popup_x = app_pos.x - 210;
+                            let popup_y = app_pos.y + 10;
+                            popup.window().set_position(slint::PhysicalPosition::new(popup_x, popup_y));
+                        }
+                        popup.set_show_state(true);
+                        popup.show().unwrap();
+                    }
+                }
+            });
+            popup_win.window().set_size(slint::LogicalSize::new(200.0, 400.0));
+            popup_win.window().set_position(slint::PhysicalPosition::new(-10000, -10000));
+            popup_win.hide().unwrap();
+            // Store weak reference for delayed hide
+            *popup_weak_holder.lock().unwrap() = Some(popup_win.as_weak());
+            *popup_guard = Some(popup_win);
+            eprintln!("[popup] Tooltip popup window created");
+        }
+    }
+
     app.run().ok();
     eprintln!("App run() finished");
 }

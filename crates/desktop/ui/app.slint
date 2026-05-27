@@ -1,5 +1,6 @@
 import { ScrollView } from "std-widgets.slint";
 import { ThemeManager, DarkTheme, LightTheme } from "themes.slint";
+import { ListView } from "../../../../slint/ui-libraries/material/src/ui/components/list_view.slint";
 
 export struct IssueData {
     id: int,
@@ -20,7 +21,7 @@ export struct VersionData {
 
 export component AppWindow inherits Window {
     title: "PasteBridge";
-    // font-family: "Microsoft YaHei, PingFang SC, SimHei, Noto Sans CJK SC, sans-serif";
+    default-font-family: "Microsoft YaHei, PingFang SC, SimHei, Noto Sans CJK SC, sans-serif";
     preferred-width: 280px;
     preferred-height: 396px;
     min-width: 200px;
@@ -43,6 +44,7 @@ export component AppWindow inherits Window {
     callback show-hover-tooltip(text: string);
     callback show-hover-tooltip-index(index: int);
     callback hide-hover-tooltip();
+    callback set-hovered-index(index: int);
     callback toggle-theme();
     callback toggle-issues();
     callback select-issue(index: int);
@@ -51,6 +53,8 @@ export component AppWindow inherits Window {
     callback restore-version(version_id: int);
     callback delete-version(version_id: int);
     callback load-versions(parent_id: int);
+    callback add-mock-data();
+    callback open-popup-window(title: string, content: string);
 
     in property <[string]> clipboard-history;
     in property <string> placeholder-text;
@@ -62,6 +66,9 @@ export component AppWindow inherits Window {
     in-out property <bool> settings-visible: false;
     in-out property <bool> issues-visible: false;
     in-out property <bool> versions-visible: false;
+
+    // Window positioning mode: 0 = golden ratio centered, 1 = follow mouse cursor
+    in-out property <int> window-position-mode: 1;
 
     // Copied 弹出提示
     popup := PopupWindow {
@@ -102,17 +109,28 @@ export component AppWindow inherits Window {
         spacing: 0px;
 
         //Main content area
-        VerticalLayout {
-            padding: 0px;
-            spacing: 0px;
+        main-content := Rectangle {
+            width: parent.width - 45px;
+            VerticalLayout {
+                padding: 0px;
+                spacing: 0px;
 
-            // Settings panel - independent, shown when visible
-            if root.settings-visible: Rectangle {
-                background: ThemeManager.is-dark ? rgba(30, 30, 30, 0.67) : rgba(255, 255, 255, 0.978);
-                
-                VerticalLayout {
-                    padding: 16px;
-                    spacing: 12px;
+                // Settings panel wrapper for animation
+                Rectangle {
+                    background: root.settings-visible ? (ThemeManager.is-dark ? rgba(30, 30, 30, 0.67) : rgba(255, 255, 255, 0.978)) : transparent;
+                    opacity: root.settings-visible ? 1.0 : 0.0;
+                    animate opacity {
+                        duration: 200ms;
+                        easing: ease-out;
+                    }
+                    animate background {
+                        duration: 200ms;
+                    }
+                    
+                    if root.settings-visible: VerticalLayout {
+                        width: parent.width;
+                        padding: 16px;
+                        spacing: 12px;
                     
                     // Header
                     HorizontalLayout {
@@ -217,10 +235,196 @@ export component AppWindow inherits Window {
                         background: ThemeManager.is-dark ? rgba(255, 255, 255, 0.1) : rgba(0, 0, 0, 0.1);
                     }
                     
+                    // Window position mode selector
+                    Text {
+                        text: "窗口定位模式";
+                        color: ThemeManager.is-dark ? #ffffff : #1a1a1a;
+                        font-size: 14px;
+                        font-weight: 500;
+                    }
+                    
+                    VerticalLayout {
+                        spacing: 6px;
+                        
+                        // Option: follow mouse (default)
+                        Rectangle {
+                            height: 36px;
+                            background: root.window-position-mode == 1 ? (ThemeManager.is-dark ? rgba(0, 120, 212, 0.3) : rgba(0, 120, 212, 0.12)) : (ThemeManager.is-dark ? rgba(255, 255, 255, 0.05) : rgba(0, 0, 0, 0.03));
+                            border-radius: 6px;
+                            border-width: 1px;
+                            border-color: root.window-position-mode == 1 ? #0078d4 : (ThemeManager.is-dark ? rgba(255, 255, 255, 0.1) : rgba(0, 0, 0, 0.08));
+                            
+                            HorizontalLayout {
+                                padding-left: 12px;
+                                padding-right: 12px;
+                                spacing: 10px;
+                                
+                                Rectangle {
+                                    width: 16px;
+                                    height: 16px;
+                                    border-radius: 8px;
+                                    border-width: 2px;
+                                    border-color: root.window-position-mode == 1 ? #0078d4 : (ThemeManager.is-dark ? rgba(255, 255, 255, 0.4) : rgba(0, 0, 0, 0.3));
+
+                                    Rectangle {
+                                        width: 8px;
+                                        height: 8px;
+                                        border-radius: 4px;
+                                        background: root.window-position-mode == 1 ? #0078d4 : transparent;
+                                        x: (parent.width - 8px) / 2;
+                                        y: (parent.height - 8px) / 2;
+                                    }
+                                }
+                                
+                                Text {
+                                    text: "吸附至鼠标光标位置";
+                                    color: root.window-position-mode == 1 ? #0078d4 : (ThemeManager.is-dark ? rgba(255, 255, 255, 0.8) : rgba(0, 0, 0, 0.7));
+                                    font-size: 13px;
+                                    vertical-alignment: center;
+                                }
+                                
+                                Rectangle { vertical-stretch: 0; horizontal-stretch: 1; }
+                                
+                                Text {
+                                    text: "默认";
+                                    color: root.window-position-mode == 1 ? #0078d4 : (ThemeManager.is-dark ? rgba(255, 255, 255, 0.3) : rgba(0, 0, 0, 0.25));
+                                    font-size: 11px;
+                                    vertical-alignment: center;
+                                }
+                            }
+                            
+                            TouchArea {
+                                width: 100%;
+                                height: 100%;
+                                clicked => {
+                                    root.window-position-mode = 1;
+                                }
+                            }
+                        }
+                        
+                        // Option: golden ratio centered
+                        Rectangle {
+                            height: 36px;
+                            background: root.window-position-mode == 0 ? (ThemeManager.is-dark ? rgba(0, 120, 212, 0.3) : rgba(0, 120, 212, 0.12)) : (ThemeManager.is-dark ? rgba(255, 255, 255, 0.05) : rgba(0, 0, 0, 0.03));
+                            border-radius: 6px;
+                            border-width: 1px;
+                            border-color: root.window-position-mode == 0 ? #0078d4 : (ThemeManager.is-dark ? rgba(255, 255, 255, 0.1) : rgba(0, 0, 0, 0.08));
+                            
+                            HorizontalLayout {
+                                padding-left: 12px;
+                                padding-right: 12px;
+                                spacing: 10px;
+                                
+                                Rectangle {
+                                    width: 16px;
+                                    height: 16px;
+                                    border-radius: 8px;
+                                    border-width: 2px;
+                                    border-color: root.window-position-mode == 0 ? #0078d4 : (ThemeManager.is-dark ? rgba(255, 255, 255, 0.4) : rgba(0, 0, 0, 0.3));
+
+                                    Rectangle {
+                                        width: 8px;
+                                        height: 8px;
+                                        border-radius: 4px;
+                                        background: root.window-position-mode == 0 ? #0078d4 : transparent;
+                                        x: (parent.width - 8px) / 2;
+                                        y: (parent.height - 8px) / 2;
+                                    }
+                                }
+                                
+                                Text {
+                                    text: "黄金比例居中";
+                                    color: root.window-position-mode == 0 ? #0078d4 : (ThemeManager.is-dark ? rgba(255, 255, 255, 0.8) : rgba(0, 0, 0, 0.7));
+                                    font-size: 13px;
+                                    vertical-alignment: center;
+                                }
+                            }
+                            
+                            TouchArea {
+                                width: 100%;
+                                height: 100%;
+                                clicked => {
+                                    root.window-position-mode = 0;
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Divider
+                    Rectangle {
+                        height: 1px;
+                        background: ThemeManager.is-dark ? rgba(255, 255, 255, 0.1) : rgba(0, 0, 0, 0.1);
+                    }
+                    
                     // Settings content placeholder
                     VerticalLayout {
                         padding-top: 20px;
                         spacing: 12px;
+                        
+                        Text {
+                            text: "历史记录数量：无限制";
+                            color: ThemeManager.is-dark ? rgba(255, 255, 255, 0.6) : rgba(0, 0, 0, 0.5);
+                            font-size: 12px;
+                            horizontal-alignment: center;
+                        }
+                        
+                        Rectangle {
+                            height: 40px;
+                            background: #0078d4;
+                            border-radius: 6px;
+                            
+                            HorizontalLayout {
+                                padding-left: 12px;
+                                padding-right: 12px;
+                                
+                                Text {
+                                    text: "添加100条mock数据";
+                                    color: #ffffff;
+                                    font-size: 14px;
+                                    font-weight: 500;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                            }
+                            
+                            TouchArea {
+                                width: 100%;
+                                height: 100%;
+                                clicked => {
+                                    root.add-mock-data();
+                                }
+                            }
+                        }
+                        
+                        Rectangle {
+                            height: 40px;
+                            background: ThemeManager.is-dark ? rgba(0, 120, 212, 0.3) : rgba(0, 120, 212, 0.12);
+                            border-radius: 6px;
+                            border-width: 1px;
+                            border-color: #0078d4;
+                            
+                            HorizontalLayout {
+                                padding-left: 12px;
+                                padding-right: 12px;
+                                
+                                Text {
+                                    text: "测试弹出窗口 (200x400)";
+                                    color: ThemeManager.is-dark ? #0078d4 : #0078d4;
+                                    font-size: 14px;
+                                    font-weight: 500;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                            }
+                            
+                            TouchArea {
+                                width: 100%;
+                                height: 100%;
+                                clicked => {
+                                    root.open-popup-window("测试窗口", "这是一个200x400的独立弹出窗口。它完全独立于主窗口，可以自由移动和调整大小。");
+                                }
+                            }
+                        }
                         
                         Text {
                             text: "更多设置选项";
@@ -230,6 +434,7 @@ export component AppWindow inherits Window {
                         }
                     }
                 }
+                }
             }
 
             // Issues panel - shows GitHub issues from slint-ui/slint
@@ -237,6 +442,7 @@ export component AppWindow inherits Window {
                 background: ThemeManager.is-dark ? rgba(30, 30, 30, 0.95) : rgba(255, 255, 255, 0.99);
                 
                 VerticalLayout {
+                    width: parent.width;
                     padding: 16px;
                     spacing: 12px;
                     
@@ -401,6 +607,7 @@ export component AppWindow inherits Window {
                 background: ThemeManager.is-dark ? rgba(30, 30, 30, 0.90) : rgba(255, 255, 255, 0.93);
                 
                 VerticalLayout {
+                    width: parent.width;
                     padding: 16px;
                     spacing: 12px;
                     
@@ -606,160 +813,98 @@ export component AppWindow inherits Window {
             if !root.settings-visible && !root.issues-visible && !root.versions-visible: VerticalLayout {
                 spacing: 0px;
                 
-                // Clipboard history list with smooth flicking
-                Flickable {
+                // Material ListView - 虚拟化 + 惯性滚动
+                // ListView 只能有一个 for 子元素，padding 通过首尾 item 的空白来实现
+                ListView {
                     vertical-stretch: 1;
-                    interactive: true;
+                    vertical-scrollbar-policy: ScrollBarPolicy.always-on;
+                    horizontal-scrollbar-policy: always-off;
 
-                    VerticalLayout {
-                        padding-left: 0px;
-                        padding-right: 0px;
-                        padding-top: 13px;
-                        padding-bottom: 15px;
-                        spacing: 8px;
-                        alignment: start;
+                    for item[index] in root.clipboard-history: Rectangle {
+                        // 首项增加顶部 padding，最后一项增加底部 padding
+                        property <length> top-padding: index == 0 ? 13px : 0px;
+                        property <length> bottom-padding: index == root.clipboard-history.length - 1 ? 15px : 0px;
+                        property <length> item-font-size: 13px;
+                        property <length> item-line-height: 18px;
+                        property <length> item-line-spacing: 4px;
+                        property <length> item-text-height: item-line-height + item-font-size + item-line-spacing;
+                        
+                        height: top-padding + item-text-height + 12px + 12px + bottom-padding;
 
-                        // 占位文本 - 列表为空时显示
-                        if (root.clipboard-history.length == 0): Rectangle {
-                            height: 120px;
-                            background: transparent;
+                        // 恢复原来的背景颜色计算
+                        background: ta.pressed ? (ThemeManager.is-dark ? rgba(120, 120, 120, 0.8) : rgba(220, 220, 220, 0.95)) : 
+                                    (ta.has-hover ? (ThemeManager.is-dark ? rgba(90, 90, 90, 0.6) : rgba(240, 240, 240, 0.9)) : 
+                                    (ThemeManager.is-dark ? rgba(61, 61, 61, 0.4) : rgba(255, 255, 255, 0.8)));
 
-                            VerticalLayout {
-                                spacing: 8px;
-                                padding-top: 20px;
-                                padding-bottom: 20px;
-                                padding-left: 20px;
-                                padding-right: 12px;
-                                Text {
-                                    text: "你好";
-                                    color: ThemeManager.is-dark ? #ffffffce : #1a1a1ace;
-                                    font-size: 28px;
-                                    font-weight: 300;
-                                    horizontal-alignment: left;
+                        // 上边框（分割线）
+                        Rectangle {
+                            y: top-padding;
+                            width: parent.width;
+                            height: 1px;
+                            background: rgba(128, 128, 128, 0.2);
+                        }
+                        // 下边框（分割线）
+                        Rectangle {
+                            y: parent.height - bottom-padding - 1px;
+                            width: parent.width;
+                            height: 1px;
+                            background: rgba(128, 128, 128, 0.2);
+                        }
+
+                        // 背景动画
+                        animate background {
+                            duration: 50ms;
+                        }
+
+                        property <bool> _item_was_moved: false;
+                        ta := TouchArea {
+                            moved => {
+                                _item_was_moved = true;
+                            }
+                            clicked => {
+                                if (!_item_was_moved) {
+                                    root.copy-item(index);
+                                    popup.show();
+                                    if (true) {
+                                        popup.close();
+                                    }
                                 }
-
-                                Text {
-                                    text: "你的剪贴板历史将显示在这里";
-                                    color: ThemeManager.is-dark ? rgba(255, 255, 255, 0.67) : rgba(0, 0, 0, 0.5);
-                                    font-size: 12px;
-                                    horizontal-alignment: left;
-                                }
-
-                                Text {
-                                    text: "";
-                                    color: ThemeManager.is-dark ? rgba(255, 255, 255, 0.5) : rgba(0, 0, 0, 0.4);
-                                    font-size: 11px;
-                                    horizontal-alignment: left;
-                                }
+                                _item_was_moved = false;
                             }
                         }
 
-                        //列表项
-                        for item[index] in root.clipboard-history: Rectangle {
-                            // 伪 line-height 实现: 13px 字号, 4px 行间距, 18px 行高
-                            property <length> item-font-size: 13px;
-                            property <length> item-line-height: 18px;   // 每行总高度（包含行间距）
-                            property <length> item-line-spacing: 4px;   // 行与行之间的间距
-                            
-                            // 计算实际文字区域高度 (两行)
-                            // 第一行: item-line-height = 18px
-                            // 第二行: item-font-size + item-line-spacing = 13px + 4px = 17px
-                            // 总高度 = 18px + 17px = 35px
-                            property <length> item-text-height: item-line-height + item-font-size + item-line-spacing;
-                            
-                            // 总高度 = 文字区域 + 上下 padding (各 12px)
-                            height: item-text-height + 12px + 12px;
+                        // Simply report hover state to window-level tracker
+                        property <bool> is-hovering: ta.has-hover;
+                        property <bool> was-hovering: false;
 
-                            background: ta.pressed ? (ThemeManager.is-dark ? rgba(120, 120, 120, 0.8) : rgba(220, 220, 220, 0.95)) : 
-                                        (ta.has-hover ? (ThemeManager.is-dark ? rgba(90, 90, 90, 0.6) : rgba(240, 240, 240, 0.9)) : 
-                                        (ThemeManager.is-dark ? rgba(61, 61, 61, 0.4) : rgba(255, 255, 255, 0.8)));
-                            border-width: 1px;
-                            border-color: rgba(128, 128, 128, 0.2);
-                            // drop-shadow-color: ThemeManager.is-dark ? rgba(0, 0, 0, 0.6) : rgba(0, 0, 0, 0.2);
-                            // drop-shadow-offset-x: 0px;
-                            // drop-shadow-blur: 8px;
+                        Timer {
+                            interval: 20ms;
+                            running: is-hovering || was-hovering;
+                            triggered => {
+                                if (is-hovering && !was-hovering) {
+                                    root.set-hovered-index(index);
+                                } else if (!is-hovering && was-hovering) {
+                                    root.set-hovered-index(-1);
+                                }
+                                was-hovering = is-hovering;
+                            }
+                        }
 
-                            // 淡入动画状态
-                            property <bool> animated: false;
+                        // 文字容器
+                        Rectangle {
+                            y: top-padding + 12px;
+                            height: item-text-height;
+                            clip: true;
                             
-                            // 创建时触发淡入
-                            Timer {
-                                interval: 30ms;
-                                running: !animated;
-                                triggered => {
-                                    animated = true;
-                                }
-                            }
-                            
-                            // 透明度
-                            opacity: 0.0;
-                            animate opacity {
-                                duration: 250ms;
-                                easing: ease-out;
-                            }
-                            
-                            // 背景渐变动画 - 悬浮 50ms，高亮
-                            animate background {
-                                duration: 50ms;
-                            }
-                            
-                            property <bool> _item_was_moved: false;
-                            ta := TouchArea {
-                                moved => {
-                                    _item_was_moved = true;
-                                }
-                                clicked => {
-                                    if (!_item_was_moved) {
-                                        root.copy-item(index);
-                                        popup.show();
-                                        if (true) {
-                                            popup.close();
-                                        }
-                                    }
-                                    _item_was_moved = false;
-                                }
-                            }
-                            
-                            // Track hover state changes efficiently
-                            property <bool> is-hovering: ta.has-hover;
-                            property <bool> was-hovering: false;
-                            
-                            // Optimized hover detection - single Timer per item, only active on hover transition
-                            Timer {
-                                interval: 60ms;
-                                running: is-hovering != was-hovering;
-                                triggered => {
-                                    if (is-hovering && !was-hovering) {
-                                        root.show-hover-tooltip-index(index);
-                                    } else if (!is-hovering && was-hovering) {
-                                        root.hide-hover-tooltip();
-                                    }
-                                    was-hovering = is-hovering;
-                                }
-                            }
-                            
-                            // 使用 states 切换来触发动画
-                            states [
-                                visible when animated: {
-                                    opacity: 1.0;
-                                }
-                            ]
-
-                            // 文字容器 - 使用 clip + 固定高度实现两行限制
-                            Rectangle {
-                                height: item-text-height;
-                                clip: true;
-                                
-                                Text {
-                                    text: item;
-                                    color: ThemeManager.is-dark ? #ffffff : #1a1a1a;
-                                    font-size: item-font-size;
-                                    font-weight: 300;
-                                    wrap: word-wrap;
-                                    width: parent.width - 24px;
-                                    x: 12px;
-                                    y: 2px;
-                                }
+                            Text {
+                                text: item;
+                                color: ThemeManager.is-dark ? #ffffff : #1a1a1a;
+                                font-size: item-font-size;
+                                font-weight: 300;
+                                wrap: word-wrap;
+                                width: parent.width - 24px;
+                                x: 12px;
+                                y: 2px;
                             }
                         }
                     }
@@ -843,7 +988,7 @@ export component AppWindow inherits Window {
                         height: 2px;
                         background: ThemeManager.is-dark ? #ffffff : #1a1a1a;
                         opacity: 1.0;
-                        transform-origin: { x: 10px, y: 1px };
+                        transform-origin: { x: 10px, y: 5px };
                         transform-rotation: 0deg;
                         states [
                             state-open when root.settings-visible: {
@@ -851,13 +996,13 @@ export component AppWindow inherits Window {
                                 out {
                                     animate transform-rotation {
                                         duration: 300ms;
-                                        easing: ease-out;
+                                        easing: ease-out-quad;
                                     }
                                 }
                                 in {
                                     animate transform-rotation {
                                         duration: 300ms;
-                                        easing: ease-out;
+                                        easing: ease-out-quad;
                                     }
                                 }
                             }
@@ -872,7 +1017,7 @@ export component AppWindow inherits Window {
                         height: 2px;
                         background: ThemeManager.is-dark ? #ffffff : #1a1a1a;
                         opacity: 1.0;
-                        transform-origin: { x: 10px, y: 1px };
+                        transform-origin: { x: 10px, y: -3px };
                         transform-rotation: 0deg;
                         states [
                             state-open when root.settings-visible: {
@@ -880,13 +1025,13 @@ export component AppWindow inherits Window {
                                 out {
                                     animate transform-rotation {
                                         duration: 300ms;
-                                        easing: ease-out;
+                                        easing: ease-out-quad;
                                     }
                                 }
                                 in {
                                     animate transform-rotation {
                                         duration: 300ms;
-                                        easing: ease-out;
+                                        easing: ease-out-quad;
                                     }
                                 }
                             }
@@ -1076,6 +1221,63 @@ export component AppWindow inherits Window {
                 }
             }
             }
+        }
+    }
+}
+
+export component PopupTooltipWindow inherits Window {
+    width: 200px;
+    height: 400px;
+    no-frame: true;
+    always-on-top: true;
+    background: transparent;
+
+    in-out property <bool> show-state: false;
+    in property <string> content-text: "";
+    in-out property <bool> show-pending: false;
+
+    callback hide-window();
+    callback on-delay-show();
+
+    container := Rectangle {
+        opacity: 0.0;
+        animate opacity { duration: 100ms; easing: ease-in-out; }
+
+        background: rgba(26, 26, 26, 0.97);
+        border-radius: 8px;
+        border-width: 1px;
+        border-color: rgba(255, 255, 255, 0.12);
+
+        states [
+            shown when root.show-state: {
+                container.opacity: 1.0;
+            }
+        ]
+
+        VerticalLayout {
+            padding: 0px;
+
+            ScrollView {
+                padding: 12px;
+                vertical-stretch: 1;
+                horizontal-scrollbar-policy: always-off;
+                vertical-scrollbar-policy: always-off;
+
+                Text {
+                    text: content-text;
+                    color: #dddddd;
+                    font-size: 13px;
+                    wrap: word-wrap;
+                }
+            }
+        }
+    }
+
+    Timer {
+        interval: 400ms;
+        running: root.show-pending && !root.show-state;
+        triggered => {
+            root.on-delay-show();
         }
     }
 }
