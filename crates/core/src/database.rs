@@ -1,48 +1,20 @@
 use rusqlite::{Connection, Result as SqliteResult, params};
-use serde::{Serialize, Deserialize};
 use sha2::{Sha256, Digest};
 use std::path::PathBuf;
+use crate::models::{ClipboardItem, ContentType};
 
-/// 剪贴板内容类型
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum ContentType {
-    Text,
-    Image,
-}
-
-/// 剪贴板记录
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ClipboardItem {
-    pub id: i64,
-    pub content_type: ContentType,
-    pub content_text: Option<String>,
-    pub content_path: Option<String>,
-    pub content_hash: String,
-    pub mime_type: Option<String>,
-    pub file_size: Option<i64>,
-    pub width: Option<i32>,
-    pub height: Option<i32>,
-    pub source_ip: Option<String>,
-    pub created_at: i64,
-    pub is_favorite: bool,
-}
-
-/// 数据库存储
 pub struct Database {
     conn: Connection,
     images_dir: PathBuf,
 }
 
 impl Database {
-    /// 打开或创建数据库
     pub fn new(db_path: &PathBuf, images_dir: &PathBuf) -> SqliteResult<Self> {
-        // 确保目录存在
         if let Some(parent) = db_path.parent() {
             std::fs::create_dir_all(parent).ok();
         }
         std::fs::create_dir_all(images_dir).ok();
-        
+
         let conn = Connection::open(db_path)?;
         let db = Self {
             conn,
@@ -52,7 +24,6 @@ impl Database {
         Ok(db)
     }
 
-    /// 初始化表结构
     fn init_tables(&self) -> SqliteResult<()> {
         self.conn.execute_batch(
             r#"
@@ -72,14 +43,14 @@ impl Database {
                 is_favorite     INTEGER NOT NULL DEFAULT 0,
                 is_deleted      INTEGER NOT NULL DEFAULT 0
             );
-            
-            CREATE INDEX IF NOT EXISTS idx_clipboard_created_at 
+
+            CREATE INDEX IF NOT EXISTS idx_clipboard_created_at
                 ON clipboard_items(created_at DESC);
-            CREATE INDEX IF NOT EXISTS idx_clipboard_hash 
+            CREATE INDEX IF NOT EXISTS idx_clipboard_hash
                 ON clipboard_items(content_hash);
-            CREATE INDEX IF NOT EXISTS idx_clipboard_type 
+            CREATE INDEX IF NOT EXISTS idx_clipboard_type
                 ON clipboard_items(content_type);
-            
+
             CREATE TABLE IF NOT EXISTS config (
                 key             TEXT PRIMARY KEY,
                 value           TEXT NOT NULL,
@@ -90,13 +61,11 @@ impl Database {
         Ok(())
     }
 
-    /// 计算内容的 SHA256 哈希
     pub fn compute_hash(content: &[u8]) -> String {
         let hash = Sha256::digest(content);
         hex::encode(hash)
     }
 
-    /// 插入文本记录
     pub fn insert_text(&self, text: &str) -> SqliteResult<i64> {
         let hash = Self::compute_hash(text.as_bytes());
         let now = std::time::SystemTime::now()
@@ -104,7 +73,6 @@ impl Database {
             .unwrap()
             .as_millis() as i64;
 
-        // 检查是否已存在
         let existing: Option<i64> = self.conn
             .query_row(
                 "SELECT id FROM clipboard_items WHERE content_hash = ?1 AND content_type = 'text'",
@@ -114,7 +82,6 @@ impl Database {
             .ok();
 
         if let Some(id) = existing {
-            // 更新时间戳
             self.conn.execute(
                 "UPDATE clipboard_items SET created_at = ?1 WHERE id = ?2",
                 params![now, id],
@@ -123,7 +90,7 @@ impl Database {
         }
 
         self.conn.execute(
-            r#"INSERT INTO clipboard_items 
+            r#"INSERT INTO clipboard_items
                (content_type, content_text, content_hash, created_at)
                VALUES ('text', ?1, ?2, ?3)"#,
             params![text, hash, now],
@@ -132,7 +99,6 @@ impl Database {
         Ok(self.conn.last_insert_rowid())
     }
 
-    /// 插入图片记录
     pub fn insert_image(
         &self,
         image_data: &[u8],
@@ -142,7 +108,6 @@ impl Database {
     ) -> SqliteResult<(i64, String)> {
         let hash = Self::compute_hash(image_data);
 
-        // 检查是否已存在
         let existing: Option<(i64, String)> = self.conn
             .query_row(
                 "SELECT id, content_path FROM clipboard_items WHERE content_hash = ?1 AND content_type = 'image'",
@@ -160,7 +125,6 @@ impl Database {
             .unwrap()
             .as_millis() as i64;
 
-        // 保存图片文件
         let ext = match mime_type {
             "image/png" => "png",
             "image/jpeg" | "image/jpg" => "jpg",
@@ -169,7 +133,7 @@ impl Database {
             _ => "bin",
         };
         let filename = format!("{}.{}", &hash[..16], ext);
-        
+
         std::fs::create_dir_all(&self.images_dir).ok();
         let path = self.images_dir.join(&filename);
         std::fs::write(&path, image_data).ok();
@@ -178,7 +142,7 @@ impl Database {
         let content_path = format!("images/{}", filename);
 
         self.conn.execute(
-            r#"INSERT INTO clipboard_items 
+            r#"INSERT INTO clipboard_items
                (content_type, content_path, content_hash, mime_type, file_size, width, height, created_at)
                VALUES ('image', ?1, ?2, ?3, ?4, ?5, ?6, ?7)"#,
             params![content_path, hash, mime_type, file_size, width, height, now],
@@ -187,12 +151,8 @@ impl Database {
         Ok((self.conn.last_insert_rowid(), content_path))
     }
 
-    /// 获取历史记录
     pub fn get_history(&self, limit: usize) -> SqliteResult<Vec<ClipboardItem>> {
-         // Limit the amount of text loaded into memory per item by truncating
-         // `content_text` to the first 50 characters for display in UI.
-         // This significantly reduces memory usage while keeping UI responsive.
-         let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare(
             r#"SELECT id, content_type, substr(content_text, 1, 50) as content_text, content_path, content_hash,
                  mime_type, file_size, width, height, source_ip, created_at, is_favorite
              FROM clipboard_items
@@ -227,7 +187,6 @@ impl Database {
         items.collect()
     }
 
-    /// 获取单条记录
     pub fn get_item(&self, id: i64) -> SqliteResult<Option<ClipboardItem>> {
         let item = self.conn.query_row(
             r#"SELECT id, content_type, content_text, content_path, content_hash,
@@ -261,7 +220,6 @@ impl Database {
         Ok(item)
     }
 
-    /// 删除记录（软删除）
     pub fn delete(&self, id: i64) -> SqliteResult<()> {
         self.conn.execute(
             "UPDATE clipboard_items SET is_deleted = 1 WHERE id = ?1",
@@ -270,7 +228,6 @@ impl Database {
         Ok(())
     }
 
-    /// 切换收藏状态
     pub fn toggle_favorite(&self, id: i64) -> SqliteResult<bool> {
         let current: i32 = self.conn.query_row(
             "SELECT is_favorite FROM clipboard_items WHERE id = ?1",
@@ -285,9 +242,7 @@ impl Database {
         Ok(new_value == 1)
     }
 
-    /// 清空历史（仅删除非收藏项）
     pub fn clear_non_favorites(&self) -> SqliteResult<usize> {
-        // 获取要删除的图片
         let mut stmt = self.conn.prepare(
             "SELECT content_path FROM clipboard_items WHERE is_favorite = 0 AND content_type = 'image'"
         )?;
@@ -295,13 +250,11 @@ impl Database {
             .filter_map(|r| r.ok())
             .collect();
 
-        // 删除文件
         for path in &paths {
             let full_path = self.images_dir.parent().unwrap().join(path);
             let _ = std::fs::remove_file(full_path);
         }
 
-        // 删除记录
         let count = self.conn.execute(
             "DELETE FROM clipboard_items WHERE is_favorite = 0",
             [],
@@ -309,7 +262,6 @@ impl Database {
         Ok(count)
     }
 
-    /// 获取记录数量
     pub fn count(&self) -> SqliteResult<usize> {
         let count: i64 = self.conn.query_row(
             "SELECT COUNT(*) FROM clipboard_items WHERE is_deleted = 0",
@@ -319,7 +271,6 @@ impl Database {
         Ok(count as usize)
     }
 
-    /// 获取配置
     pub fn get_config(&self, key: &str) -> SqliteResult<Option<String>> {
         let value: Option<String> = self.conn
             .query_row(
@@ -331,7 +282,6 @@ impl Database {
         Ok(value)
     }
 
-    /// 设置配置
     pub fn set_config(&self, key: &str, value: &str) -> SqliteResult<()> {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -345,7 +295,6 @@ impl Database {
         Ok(())
     }
 
-    /// 获取数据库路径
     pub fn get_images_dir(&self) -> &PathBuf {
         &self.images_dir
     }

@@ -2,13 +2,13 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::{Instant, Duration};
 
 #[cfg(target_os = "windows")]
-use windows::Win32::System::ProcessStatus::GetProcessMemoryInfo;
+use windows::Win32::System::ProcessStatus::{GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS};
 #[cfg(target_os = "windows")]
-use windows::Win32::System::ProcessStatus::PROCESS_MEMORY_COUNTERS;
+use windows::Win32::System::Memory::SetProcessWorkingSetSizeEx;
 #[cfg(target_os = "windows")]
 use windows::Win32::Foundation::CloseHandle;
 #[cfg(target_os = "windows")]
-use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION};
+use windows::Win32::System::Threading::{OpenProcess, GetCurrentProcess, PROCESS_QUERY_INFORMATION};
 
 pub struct MemoryMonitor {
     start_time: Instant,
@@ -31,13 +31,13 @@ impl MemoryMonitor {
     pub fn update(&self) -> u64 {
         let memory_used = self.get_process_memory_windows();
         self.current_memory.store(memory_used, Ordering::SeqCst);
-        
+
         let current = self.current_memory.load(Ordering::SeqCst);
         let peak = self.peak_memory.load(Ordering::SeqCst);
         if current > peak {
             self.peak_memory.store(current, Ordering::SeqCst);
         }
-        
+
         self.update_count.fetch_add(1, Ordering::SeqCst);
         memory_used
     }
@@ -52,11 +52,11 @@ impl MemoryMonitor {
         unsafe {
             let pid = windows::Win32::System::Threading::GetCurrentProcessId();
             let handle = OpenProcess(PROCESS_QUERY_INFORMATION, false, pid).ok();
-            
+
             if let Some(handle) = handle {
                 let mut counters = PROCESS_MEMORY_COUNTERS::default();
                 counters.cb = std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
-                
+
                 if GetProcessMemoryInfo(handle, &mut counters, counters.cb).is_ok() {
                     let working_set = counters.WorkingSetSize as u64;
                     CloseHandle(handle).ok();
@@ -103,6 +103,29 @@ impl MemoryMonitor {
         } else {
             format!("{} B", bytes)
         }
+    }
+
+    /// Trim the process working set to release idle memory back to the OS.
+    /// Returns the amount of memory freed (best effort), or None if unavailable.
+    #[cfg(target_os = "windows")]
+    pub fn trim_working_set(&self) -> Option<u64> {
+        let before = self.get_current_memory();
+        unsafe {
+            SetProcessWorkingSetSizeEx(
+                GetCurrentProcess(),
+                usize::MAX,
+                usize::MAX,
+                windows::Win32::System::Memory::SETPROCESSWORKINGSETSIZEEX_FLAGS(0),
+            ).ok()?;
+        }
+        // Re-read after trimming
+        let after = self.update();
+        Some(before.saturating_sub(after))
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    pub fn trim_working_set(&self) -> Option<u64> {
+        None
     }
 }
 

@@ -1,0 +1,504 @@
+import { ScrollView } from "std-widgets.slint";
+
+export component AppWindow inherits Window {
+    title: "PasteBridge";
+    preferred-width: 280px;
+    preferred-height: 396px;
+    min-width: 200px;
+    min-height: 300px;
+    max-width: 600px;
+    max-height: 800px;
+    no-frame: true;
+    resize-border-width: 8px;
+    always-on-top: true;
+    background: rgba(0, 0, 0, 0.17);
+    
+
+    callback minimize-window();
+    callback hide-window();
+    callback start-drag();
+    callback new-clipboard-entry(text: string);
+    callback copy-item(index: int);
+    callback clear-history();
+    callback toggle-settings();
+    callback show-hover-tooltip(text: string);
+    callback show-hover-tooltip-index(index: int);
+    callback hide-hover-tooltip();
+
+    in property <[string]> clipboard-history;
+    in property <string> placeholder-text;
+    
+    // Settings panel visibility
+    in-out property <bool> settings-visible: false;
+
+    // Copied 弹出提示
+    popup := PopupWindow {
+        x: 0px;
+        y: -48px;
+        width: 80px;
+        height: 32px;
+
+        Rectangle {
+            background: #1a1a1a;
+            border-radius: 6px;
+
+            Text {
+                text: "Copied";
+                color: #ffffff;
+                font-size: 13px;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+    }
+    
+    // in property <[string]> clipboard-history: [
+    //     "Mock 1: Hello World",
+    //     "Mock 2: Rust + Slint",
+    //     "Mock 3: 测试中文",
+    //     "Mock 1: Hello World",
+    //     "Mock 2: Rust + Slint",
+    //     "Mock 3: 测试中文",
+    //     "Mock 1: Hello World",
+    //     "Mock 2: Rust + Slint",
+    //     "Mock 3: 测试中文",
+    //     "Mock 1: Hello World",
+    //     "Mock 2: Rust + Slint",
+    //     "Mock 3: 测试中文",
+    // ];
+
+    // Background gradient layer (底层)
+    Rectangle {
+         background: rgba(0, 0, 0, 0);
+        // background: @linear-gradient(122deg,rgba(30, 142, 212, 0) 0%, rgba(30, 142, 212, 0.1) 40%, rgba(143, 87, 199, 0.12) 75%, rgba(255, 201, 255, 0.18) 100%);
+    }
+
+    // White border and shadow container
+    Rectangle {
+        background: rgba(0, 0, 0, 0.17);
+        border-width: 1px;
+        border-color: rgba(128, 77, 77, 0.1);
+    }
+
+
+    HorizontalLayout {
+        padding: 0px;
+        spacing: 0px;
+
+        //Main content area
+        VerticalLayout {
+            padding: 0px;
+            spacing: 0px;
+
+            // Settings panel - independent, shown when visible
+            if root.settings-visible: Rectangle {
+                background: rgba(30, 30, 30, 0.95);
+                
+                VerticalLayout {
+                    padding: 16px;
+                    spacing: 12px;
+                    
+                    // Header
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Text {
+                            text: "设置";
+                            color: #ffffff;
+                            font-size: 18px;
+                            font-weight: 600;
+                            horizontal-alignment: left;
+                            vertical-alignment: center;
+                        }
+                        
+                        Rectangle { vertical-stretch: 0; horizontal-stretch: 1; }
+                        
+                        // Close button - returns to history
+                        Rectangle {
+                            width: 28px;
+                            height: 28px;
+                            background: rgba(255, 255, 255, 0.1);
+                            border-radius: 4px;
+                            
+                            Text {
+                                text: "←";
+                                color: #ffffff;
+                                font-size: 14px;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                            
+                            TouchArea {
+                                width: 100%;
+                                height: 100%;
+                                clicked => {
+                                    root.toggle-settings();
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Divider
+                    Rectangle {
+                        height: 1px;
+                        background: rgba(255, 255, 255, 0.1);
+                    }
+                    
+                    // Settings content
+                    Text {
+                        text: "设置面板内容";
+                        color: rgba(255, 255, 255, 0.7);
+                        font-size: 14px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
+            // History panel - contains: ScrollView, divider, search box
+            if !root.settings-visible: VerticalLayout {
+                spacing: 0px;
+                
+                // Clipboard history list
+                ScrollView {
+                    vertical-stretch: 1;
+                    horizontal-scrollbar-policy: always-off;
+                    vertical-scrollbar-policy: always-off;
+
+                    VerticalLayout {
+                        padding-left: 0px;
+                        padding-right: 0px;
+                        padding-top: 13px;
+                        padding-bottom: 15px;
+                        spacing: 8px;
+                        alignment: start;
+
+                        // 占位文本 - 列表为空时显示
+                        if (root.clipboard-history.length == 0): Rectangle {
+                            height: 120px;
+                            background: transparent;
+
+                            VerticalLayout {
+                                spacing: 8px;
+                                padding-top: 20px;
+                                padding-bottom: 20px;
+                                padding-left: 20px;
+                                padding-right: 12px;
+                                Text {
+                                    text: "你好";
+                                    color: #ffffffce;
+                                    font-size: 28px;
+                                    font-weight: 300;
+                                    horizontal-alignment: left;
+                                }
+
+                                Text {
+                                    text: "你的剪贴板历史将显示在这里";
+                                    color: rgba(255, 255, 255, 0.67);
+                                    font-size: 12px;
+                                    horizontal-alignment: left;
+                                }
+
+                                Text {
+                                    text: "";
+                                    color: rgba(255, 255, 255, 0.5);
+                                    font-size: 11px;
+                                    horizontal-alignment: left;
+                                }
+                            }
+                        }
+
+                        //列表项
+                        for item[index] in root.clipboard-history: Rectangle {
+                            height: 52px;
+                            background: ta.pressed ? rgba(120, 120, 120, 0.8) : (ta.has-hover ? rgba(90, 90, 90, 0.6) : rgba(61, 61, 61, 0.4));
+                            border-radius: 0px;
+                            border-width: 0px;
+                            border-color: rgba(255, 255, 255, 0.1);
+                            drop-shadow-color: rgba(0, 0, 0, 0.5);
+                            drop-shadow-offset-y: 2px;
+                            drop-shadow-blur: 4px;
+
+                            // 淡入动画状态
+                            property <bool> animated: false;
+                            
+                            // 创建时触发淡入
+                            Timer {
+                                interval: 30ms;
+                                running: !animated;
+                                triggered => {
+                                    animated = true;
+                                }
+                            }
+                            
+                            // 透明度
+                            opacity: 0.0;
+                            animate opacity {
+                                duration: 250ms;
+                                easing: ease-out;
+                            }
+                            
+                            // 背景渐变动画 - 悬浮 50ms，高亮
+                            animate background {
+                                duration: 50ms;
+                            }
+                            
+                            ta := TouchArea {
+                                clicked => {
+                                    root.copy-item(index);
+                                    popup.show();
+                                    if (true) {
+                                        popup.close();
+                                    }
+                                }
+                            }
+                            
+                            // Track hover state changes - only trigger on transition
+                            property <bool> is-hovering: ta.has-hover;
+                            property <bool> was-hovering: false;
+                            
+                            // Timer to detect hover state changes (not running constantly)
+                            Timer {
+                                interval: 50ms;
+                                running: is-hovering || was-hovering;
+                                triggered => {
+                                    if (is-hovering && !was-hovering) {
+                                        root.show-hover-tooltip-index(index);
+                                    }
+                                    if (!is-hovering && was-hovering) {
+                                        root.hide-hover-tooltip();
+                                    }
+                                    was-hovering = is-hovering;
+                                }
+                            }
+                            
+                            // 使用 states 切换来触发动画
+                            states [
+                                visible when animated: {
+                                    opacity: 1.0;
+                                }
+                            ]
+
+                            HorizontalLayout {
+                                padding-left: 12px;
+                                padding-right: 12px;
+                                padding-top: 6px;
+                                padding-bottom: 6px;
+
+                                Text {
+                                    text: item;
+                                    color: #ffffff;
+                                    font-size: 13px;
+                                    vertical-alignment: top;
+                                    font-weight: 300;
+                                    overflow: clip;
+                                    vertical-stretch: 0;
+                                    horizontal-stretch: 0;
+                                    // 通过固定高度间接控制行间距
+                                    height: 36px;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                //分割条
+                Rectangle {
+                    drop-shadow-color: rgb(0, 0, 0);
+                    drop-shadow-offset-y: 5px;
+                    drop-shadow-blur: 10px;
+                    height: 1px;
+                    background: #4d4d4d;
+                }
+
+                // Bottom bar - Search box
+                Rectangle {
+                    drop-shadow-color: rgba(0, 0, 0, 0.3);
+                    drop-shadow-offset-y: -10px;
+                    drop-shadow-blur: 20px;
+                    height: 40px;
+                    background: rgba(0, 0, 0, 0.1);
+
+                    HorizontalLayout {
+                        padding-left: 12px;
+                        padding-right: 12px;
+                        spacing: 8px;
+
+                        Text {
+                            text: "搜索...";
+                            color: rgba(255, 255, 255, 0.5);
+                            font-size: 12px;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Vertical line on toolbar left
+        Rectangle {
+            width: 1px;
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        // Right toolbar (44px wide) - 拖动区域
+        Rectangle {
+            width: 44px;
+            background: rgba(0, 0, 0, 0.66);
+            drop-shadow-color: rgba(0, 0, 0, 0.5);
+            drop-shadow-offset-x: -10px;
+            drop-shadow-offset-y: 0px;
+            drop-shadow-blur: 20px;
+
+            TouchArea {
+                width: 100%;
+                height: 100%;
+                pointer-event(ev) => {
+                    if (ev.button == PointerEventButton.left && ev.kind == PointerEventKind.down) {
+                        root.start-drag();
+                    }
+                }
+
+                VerticalLayout {
+                padding-left: 10.5px;
+                padding-right: 10.5px;
+                padding-top: 13px;
+                padding-bottom: 12px;
+                spacing: 12px;
+
+                Image {
+                    source: @image-url("favicon.png");
+                    width: 26px;
+                    height: 26px;
+                }
+
+                Image {
+                    source: @image-url("pin.png");
+                    width: 16px;
+                    height: 16px;
+                }
+
+                Rectangle {
+                    width: 24px;
+                    height: 24px;
+                    background: transparent;
+                }
+
+                // Clear button
+                Rectangle {
+                    width: 24px;
+                    height: 24px;
+                    background: #555555;
+                    border-radius: 4px;
+
+                    Text {
+                        text: "🗑";
+                        color: #ffffff;
+                        font-size: 12px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    TouchArea {
+                        width: 100%;
+                        height: 100%;
+                        clicked => {
+                            root.clear-history();
+                        }
+                    }
+                }
+
+                Rectangle {
+                    width: 24px;
+                    height: 24px;
+                    background: #555555;
+                    border-radius: 4px;
+
+                    Text {
+                        text: "❤";
+                        color: #ffffff;
+                        font-size: 14px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    TouchArea {
+                        width: 100%;
+                        height: 100%;
+                        clicked => {
+                            root.minimize-window();
+                        }
+                    }
+                }
+
+                Rectangle {
+                    width: 24px;
+                    height: 24px;
+                    background: #e81123;
+                    border-radius: 4px;
+
+                    Text {
+                        text: "X";
+                        color: #ffffff;
+                        font-size: 14px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    TouchArea {
+                        width: 100%;
+                        height: 100%;
+                        clicked => {
+                            root.hide-window();
+                        }
+                    }
+                }
+                
+                // Settings button
+                Rectangle {
+                    width: 24px;
+                    height: 24px;
+                    background: #0078d4;
+                    border-radius: 4px;
+
+                    Text {
+                        text: "⚙";
+                        color: #ffffff;
+                        font-size: 14px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    TouchArea {
+                        width: 100%;
+                        height: 100%;
+                        clicked => {
+                            root.toggle-settings();
+                        }
+                    }
+                }
+
+                // Share button - fixed at bottom right, no background
+                Rectangle {
+                    vertical-stretch: 1;
+                }
+
+                Image {
+                    source: @image-url("share.svg");
+                    width: 24px;
+                    height: 24px;
+
+                    TouchArea {
+                        width: 100%;
+                        height: 100%;
+                        clicked => {
+                            // Share action
+                        }
+                    }
+                }
+            }
+            }
+        }
+    }
+}
+
+

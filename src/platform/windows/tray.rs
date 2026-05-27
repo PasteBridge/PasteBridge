@@ -1,5 +1,3 @@
-//! Windows tray icon implementation
-
 use tray_icon::{TrayIconBuilder, menu::{Menu, MenuItem}};
 use std::vec::Vec;
 use crate::platform::traits::{PlatformTrayTrait, TrayHandles};
@@ -27,7 +25,6 @@ impl PlatformTrayTrait for WindowsTray {
         tray_menu.append(&show_i).unwrap();
         tray_menu.append(&quit_i).unwrap();
 
-        // Create gray icon (16x16) - use from_rgba directly
         let mut rgba = Vec::with_capacity(16 * 16 * 4);
         for _ in 0..16*16 {
             rgba.extend_from_slice(&[150, 150, 150, 255]);

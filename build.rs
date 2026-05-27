@@ -1,5 +1,5 @@
 fn main() {
-    slint_build::compile("ui/app.slint").unwrap();
+    slint_build::compile("crates/desktop/ui/app.slint").unwrap();
 
     #[cfg(all(target_os = "windows", target_env = "msvc"))]
     {
@@ -10,10 +10,6 @@ fn main() {
             println!("cargo:rustc-link-search={}", ucrt_lib_dir);
         }
 
-        // Compile C++ stubs to provide missing MSVC STL symbols
-        // (e.g., __std_search_1) that clang-cl didn't inline.
-        // Use /WHOLEARCHIVE to force the linker to include all symbols
-        // from this static library, resolving references from skia.lib.
         let out_dir = std::path::PathBuf::from(
             std::env::var("OUT_DIR").expect("OUT_DIR not set"),
         );
@@ -71,7 +67,6 @@ fn find_highest_msvc_lib_dir() -> Option<String> {
 
                 let lib_dir = path.join("lib").join("x64");
                 if lib_dir.exists() {
-                    let key = (a, b, c);
                     let should_replace = match &best {
                         Some((ba, bb, bc, _)) => {
                             a > *ba || (a == *ba && b > *bb) || (a == *ba && b == *bb && c > *bc)

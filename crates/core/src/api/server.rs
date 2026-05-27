@@ -1,10 +1,7 @@
-//! HTTP API Server
-
 use std::sync::{Arc, mpsc};
 use std::thread;
-use std::io::Read;
 use tiny_http::{Server, Response};
-use crate::core::state::AppState;
+use crate::state::AppState;
 use crate::api::routes;
 
 pub struct ApiServer {
@@ -20,12 +17,11 @@ impl ApiServer {
         }
     }
 
-    /// Start the API server
     pub fn start(&mut self, state: Arc<AppState>) -> Result<(), String> {
         let addr = format!("127.0.0.1:{}", self.port);
         let server = Server::http(&addr)
             .map_err(|e| format!("Failed to start server on {}: {}", addr, e))?;
-        
+
         eprintln!("[api] API server listening on http://{}", addr);
 
         let (shutdown_tx, shutdown_rx) = mpsc::channel::<()>();
@@ -34,7 +30,6 @@ impl ApiServer {
         let state_clone = state.clone();
         thread::spawn(move || {
             for request in server.incoming_requests() {
-                // Check for shutdown signal
                 if shutdown_rx.try_recv().is_ok() {
                     break;
                 }
@@ -49,7 +44,6 @@ impl ApiServer {
         Ok(())
     }
 
-    /// Stop the API server
     pub fn stop(&mut self) {
         if let Some(tx) = self.shutdown_tx.take() {
             let _ = tx.send(());
@@ -83,7 +77,7 @@ fn handle_request(
         }
 
         ("POST", "/clipboard/clear") => {
-            routes::handle_clear(state);
+            let _ = routes::handle_clear(state);
             Response::from_string("OK")
         }
 

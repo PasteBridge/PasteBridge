@@ -1,0 +1,158 @@
+// Theme system for PasteBridge
+// Dark theme (default)
+export struct Theme {
+    // Window
+    window-bg: brush,
+    container-bg: brush,
+    container-border: brush,
+    
+    // Toolbar
+    toolbar-bg: brush,
+    toolbar-shadow: brush,
+    toolbar-divider: brush,
+    
+    // Settings panel
+    settings-bg: brush,
+    settings-header: brush,
+    settings-text: brush,
+    settings-divider: brush,
+    settings-close-btn-bg: brush,
+    
+    // List items
+    item-normal: brush,
+    item-hover: brush,
+    item-pressed: brush,
+    item-border: brush,
+    item-text: brush,
+    item-shadow: brush,
+    
+    // Search bar
+    search-bg: brush,
+    search-text: brush,
+    search-shadow: brush,
+    
+    // Buttons
+    btn-clear-bg: brush,
+    btn-minimize-bg: brush,
+    btn-close-bg: brush,
+    btn-settings-bg: brush,
+    btn-text: brush,
+    
+    // Divider
+    divider-line: brush,
+    divider-shadow: brush,
+    
+    // Placeholder
+    placeholder-title: brush,
+    placeholder-subtitle: brush,
+    placeholder-text: brush,
+    
+    // Popup
+    popup-bg: brush,
+    popup-text: brush,
+}
+
+// Dark theme colors
+export global DarkTheme {
+    out property <Theme> theme: {
+        window-bg: rgba(0, 0, 0, 0.17),
+        container-bg: rgba(0, 0, 0, 0.17),
+        container-border: rgba(128, 77, 77, 0.1),
+        
+        toolbar-bg: rgba(0, 0, 0, 0.66),
+        toolbar-shadow: rgba(0, 0, 0, 0.5),
+        toolbar-divider: rgba(255, 255, 255, 0.1),
+        
+        settings-bg: rgba(30, 30, 30, 0.95),
+        settings-header: #ffffff,
+        settings-text: rgba(255, 255, 255, 0.7),
+        settings-divider: rgba(255, 255, 255, 0.1),
+        settings-close-btn-bg: rgba(255, 255, 255, 0.1),
+        
+        item-normal: rgba(61, 61, 61, 0.4),
+        item-hover: rgba(90, 90, 90, 0.6),
+        item-pressed: rgba(120, 120, 120, 0.8),
+        item-border: rgba(255, 255, 255, 0.1),
+        item-text: #ffffff,
+        item-shadow: rgba(0, 0, 0, 0.5),
+        
+        search-bg: rgba(0, 0, 0, 0.1),
+        search-text: rgba(255, 255, 255, 0.5),
+        search-shadow: rgba(0, 0, 0, 0.3),
+        
+        btn-clear-bg: #555555,
+        btn-minimize-bg: #555555,
+        btn-close-bg: #e81123,
+        btn-settings-bg: #0078d4,
+        btn-text: #ffffff,
+        
+        divider-line: #4d4d4d,
+        divider-shadow: rgb(0, 0, 0),
+        
+        placeholder-title: #ffffffce,
+        placeholder-subtitle: rgba(255, 255, 255, 0.67),
+        placeholder-text: rgba(255, 255, 255, 0.5),
+        
+        popup-bg: #1a1a1a,
+        popup-text: #ffffff,
+    };
+}
+
+// Light theme colors
+export global LightTheme {
+    out property <Theme> theme: {
+        window-bg: rgba(255, 255, 255, 0.9),
+        container-bg: rgba(255, 255, 255, 0.85),
+        container-border: rgba(0, 0, 0, 0.1),
+        
+        toolbar-bg: rgba(255, 255, 255, 0.95),
+        toolbar-shadow: rgba(0, 0, 0, 0.15),
+        toolbar-divider: rgba(0, 0, 0, 0.1),
+        
+        settings-bg: rgba(255, 255, 255, 0.98),
+        settings-header: #1a1a1a,
+        settings-text: rgba(0, 0, 0, 0.7),
+        settings-divider: rgba(0, 0, 0, 0.1),
+        settings-close-btn-bg: rgba(0, 0, 0, 0.05),
+        
+        item-normal: rgba(255, 255, 255, 0.8),
+        item-hover: rgba(240, 240, 240, 0.9),
+        item-pressed: rgba(220, 220, 220, 0.95),
+        item-border: rgba(0, 0, 0, 0.05),
+        item-text: #1a1a1a,
+        item-shadow: rgba(0, 0, 0, 0.1),
+        
+        search-bg: rgba(255, 255, 255, 0.9),
+        search-text: rgba(0, 0, 0, 0.5),
+        search-shadow: rgba(0, 0, 0, 0.08),
+        
+        btn-clear-bg: #e0e0e0,
+        btn-minimize-bg: #e0e0e0,
+        btn-close-bg: #ff6b6b,
+        btn-settings-bg: #4a90d9,
+        btn-text: #1a1a1a,
+        
+        divider-line: #d0d0d0,
+        divider-shadow: rgba(0, 0, 0, 0.05),
+        
+        placeholder-title: #1a1a1ace,
+        placeholder-subtitle: rgba(0, 0, 0, 0.5),
+        placeholder-text: rgba(0, 0, 0, 0.4),
+        
+        popup-bg: #ffffff,
+        popup-text: #1a1a1a,
+    };
+}
+
+// Current theme selector
+export global ThemeManager {
+    in-out property <bool> is-dark: true;
+    
+    public function get-theme() -> Theme {
+        if (is-dark) {
+            return DarkTheme.theme;
+        } else {
+            return LightTheme.theme;
+        }
+    }
+}

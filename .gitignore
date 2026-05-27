@@ -1,11 +1,18 @@
 pastebridge.code-workspace
 /test
 
-# Added by cargo
-
 /target
+
 .refact/buddy/memory_ops.jsonl
-.refact/buddy/state.json
 .refact/buddy/state.json
 .refact/buddy/runtime_queue.jsonl
-.refact/buddy/memory_ops.jsonl
+
+/1.txt
+/stderr_test.log
+/stderr_test2.log
+
+# Old structure (migrated to crates/)
+/src/
+/build.rs
+/ui/
+/msvc_stubs.cpp

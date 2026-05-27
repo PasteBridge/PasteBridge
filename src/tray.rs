@@ -18,7 +18,6 @@ pub fn setup_tray() -> TrayHandles {
     tray_menu.append(&show_i).unwrap();
     tray_menu.append(&quit_i).unwrap();
 
-    // 绘制一个灰色的实色图标以防止找不到本地图标报错
     let mut rgba = Vec::with_capacity(16 * 16 * 4);
     for _ in 0..16*16 {
         rgba.extend_from_slice(&[150, 150, 150, 255]);
@@ -52,16 +51,14 @@ pub fn start_tray_event_loop<F>(
     std::thread::spawn(move || {
         let receiver = GlobalHotKeyEvent::receiver();
         let menu_channel = MenuEvent::receiver();
-        
+
         loop {
-            // 处理热键事件
             if let Ok(event) = receiver.try_recv() {
                 if event.id == hotkey_id && event.state == HotKeyState::Pressed {
                     toggle_window();
                 }
             }
 
-            // 处理托盘菜单事件
             if let Ok(event) = menu_channel.try_recv() {
                 if event.id.as_ref() == quit_id {
                     std::process::exit(0);

@@ -1,8 +1,3 @@
-//! Windows clipboard implementation
-//! 
-//! Note: arboard's Clipboard requires &mut self for get_text/set_text
-//! So we use RefCell for interior mutability
-
 use std::cell::RefCell;
 use arboard::Clipboard;
 use crate::platform::traits::PlatformClipboard;
