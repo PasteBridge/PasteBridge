@@ -1,0 +1,3 @@
+[submodule "slint"]
+	path = slint
+	url = https://github.com/slint-ui/slint
