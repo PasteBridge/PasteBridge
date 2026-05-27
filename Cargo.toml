@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 paste_bridge_core = { path = "crates/core" }
-slint = { path = "slint/api/rs/slint", default-features = false, features = ["std", "backend-winit", "renderer-femtovg", "compat-1-2", "raw-window-handle-06"] }
+slint = { path = "slint/api/rs/slint", default-features = false, features = ["std", "backend-winit", "renderer-skia", "compat-1-2", "raw-window-handle-06"] }
 global-hotkey = "0.6"
 clipboard-win = "5.4"
 arboard = "3.4"

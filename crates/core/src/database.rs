@@ -298,4 +298,59 @@ impl Database {
     pub fn get_images_dir(&self) -> &PathBuf {
         &self.images_dir
     }
+
+    pub fn insert_mock_data(&self, count: usize) -> SqliteResult<usize> {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+        
+        let two_days_ms: i64 = 2 * 24 * 60 * 60 * 1000;
+        let mut inserted = 0;
+
+        let current_count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM clipboard_items WHERE is_deleted = 0",
+            [],
+            |row| row.get(0),
+        )?;
+
+        for i in 0..count {
+            let index = current_count as usize + i + 1;
+            let random_offset = (rand_simple(index) % two_days_ms as u64) as i64;
+            let created_at = now - random_offset;
+            let text = format!("Mock data #{}", index);
+
+            let hash = Self::compute_hash(text.as_bytes());
+            
+            let existing: Option<i64> = self.conn
+                .query_row(
+                    "SELECT id FROM clipboard_items WHERE content_hash = ?1 AND content_type = 'text'",
+                    params![hash],
+                    |row| row.get(0),
+                )
+                .ok();
+
+            if existing.is_none() {
+                self.conn.execute(
+                    r#"INSERT INTO clipboard_items
+                       (content_type, content_text, content_hash, created_at)
+                       VALUES ('text', ?1, ?2, ?3)"#,
+                    params![text, hash, created_at],
+                )?;
+                inserted += 1;
+            }
+        }
+
+        Ok(inserted)
+    }
+}
+
+fn rand_simple(seed: usize) -> u64 {
+    let mut state = seed as u64;
+    state = state.wrapping_mul(1103515245).wrapping_add(12345);
+    state ^= state >> 16;
+    state = state.wrapping_mul(1103515245).wrapping_add(12345);
+    state
 }

@@ -69,6 +69,11 @@ impl AppState {
         db.count().unwrap_or(0)
     }
 
+    pub fn add_mock_data(&self, count: usize) -> usize {
+        let db = self.db.lock().unwrap();
+        db.insert_mock_data(count).unwrap_or(0)
+    }
+
     pub fn set_window_visible(&self, visible: bool) {
         *self.is_window_visible.lock().unwrap() = visible;
     }
