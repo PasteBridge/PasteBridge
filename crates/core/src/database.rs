@@ -153,7 +153,7 @@ impl Database {
 
     pub fn get_history(&self, limit: usize) -> SqliteResult<Vec<ClipboardItem>> {
         let mut stmt = self.conn.prepare(
-            r#"SELECT id, content_type, substr(content_text, 1, 50) as content_text, content_path, content_hash,
+            r#"SELECT id, content_type, content_text, content_path, content_hash,
                  mime_type, file_size, width, height, source_ip, created_at, is_favorite
              FROM clipboard_items
              WHERE is_deleted = 0

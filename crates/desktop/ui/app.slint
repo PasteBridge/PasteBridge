@@ -106,6 +106,7 @@ export component AppWindow inherits Window {
     callback copy-item(index: int);
     callback clear-history();
     callback toggle-settings();
+    callback toggle-favorite();
     callback toggle-share();
     callback show-hover-tooltip(text: string);
     callback show-hover-tooltip-index(index: int);
@@ -137,6 +138,10 @@ export component AppWindow inherits Window {
 
     // Window positioning mode: 0 = golden ratio centered, 1 = follow mouse cursor
     in-out property <int> window-position-mode: 1;
+    
+    // Scroll indicator properties
+    in-out property <bool> is-scrolling: false;
+    in-out property <int> last-visible-index: 0;
 
     // Copied 弹出提示
     popup := PopupWindow {
@@ -967,24 +972,50 @@ export component AppWindow inherits Window {
             if !root.settings-visible && !root.issues-visible && !root.versions-visible && !root.share-visible: VerticalLayout {
                 spacing: 0px;
                 
+                // Scroll position reset timer
+                Timer {
+                    interval: 500ms;
+                    running: root.is-scrolling;
+                    triggered => {
+                        root.is-scrolling = false;
+                    }
+                }
+                
                 // Clipboard history list with smooth flicking
-                ListView {
-
-                    for item[index] in root.clipboard-history: Rectangle {
+                scroll-container := ScrollView {
+                    vertical-stretch: 1;
+                    horizontal-scrollbar-policy: always-off;
+                    vertical-scrollbar-policy: always-off;
+                    
+                    scrolled => {
+                        root.is-scrolling = true;
+                        let item_height = 45px;
+                        let visible_height = scroll-container.height;
+                        let scroll_pos = scroll-container.viewport-y;
+                        let last_index = round(scroll_pos / item_height + visible_height / item_height - 1);
+                        root.last-visible-index = max(0, min(root.clipboard-history.length - 1, last_index));
+                    }
+                    
+                    VerticalLayout {
+                        spacing: 0px;
+                        
+                        for item[index] in root.clipboard-history: Rectangle {
                         property <length> item-font-size: 13px;
                         property <length> item-line-height: 18px;
-                        property <length> item-line-spacing: 4px;
-                        property <length> item-text-height: item-line-height + item-font-size + item-line-spacing;
-                        
-                        height: item-text-height + 12px + 12px;
 
-                        background: ta.pressed ? (ThemeManager.is-dark ? rgba(120, 120, 120, 0.8) : rgba(220, 220, 220, 0.95)) : 
-                                    (ta.has-hover ? (ThemeManager.is-dark ? rgba(90, 90, 90, 0.6) : rgba(240, 240, 240, 0.9)) : 
+                        height: Math.min(
+                            Math.max(item-text-layout.preferred-height + 24px,
+                            item-line-height * 1 + 24px),
+                            item-line-height * 6 + 24px
+                        );
+
+                        background: ta.pressed ? (ThemeManager.is-dark ? rgba(120, 120, 120, 0.8) : rgba(220, 220, 220, 0.95)) :
+                                    (ta.has-hover ? (ThemeManager.is-dark ? rgba(90, 90, 90, 0.6) : rgba(240, 240, 240, 0.9)) :
                                     (ThemeManager.is-dark ? rgba(61, 61, 61, 0.4) : rgba(255, 255, 255, 0.8)));
 
                         // 背景动画
                         animate background {
-                            duration: 50ms;
+                            duration: 30ms;
                         }
 
                         property <bool> _item_was_moved: false;
@@ -1021,13 +1052,19 @@ export component AppWindow inherits Window {
                             }
                         }
 
-                        // 文字容器
+                        // 伪边框
+                        Rectangle {
+                            border-width: 1px;
+                            border-color: ThemeManager.is-dark ? rgba(80, 80, 80, 0.4) : rgba(220, 220, 220, 0.8);
+                        }
+
+                        // 文字裁切容器
                         Rectangle {
                             y: 12px;
-                            height: item-text-height;
+                            height: parent.height - 24px;
                             clip: true;
-                            
-                            Text {
+
+                            item-text-layout := Text {
                                 text: item;
                                 color: ThemeManager.is-dark ? #ffffff : #1a1a1a;
                                 font-size: item-font-size;
@@ -1035,13 +1072,38 @@ export component AppWindow inherits Window {
                                 wrap: word-wrap;
                                 width: parent.width - 24px;
                                 x: 12px;
-                                y: 2px;
+                                y: 0;
                             }
                         }
+                    }
                     }
                 }
             }
 
+            // Scroll position indicator - shows when scrolling
+            if !root.settings-visible && !root.issues-visible && !root.versions-visible && !root.share-visible: Rectangle {
+                y: parent.height - 55px;
+                x: parent.width - 80px;
+                width: 70px;
+                height: 22px;
+                background: ThemeManager.is-dark ? rgba(0, 0, 0, 0.7) : rgba(0, 0, 0, 0.6);
+                border-radius: 11px;
+                opacity: root.is-scrolling ? 1.0 : 0.0;
+                animate opacity {
+                    duration: 200ms;
+                    easing: ease-out;
+                }
+                
+                Text {
+                    text: (root.last-visible-index + 1) + "/" + root.clipboard-history.length;
+                    color: #ffffff;
+                    font-size: 11px;
+                    font-weight: 500;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+            
             // Search box - overlaid on top layer
             if !root.settings-visible && !root.issues-visible && !root.versions-visible && !root.share-visible: Rectangle {
                 y: parent.height - 40px;
@@ -1180,24 +1242,22 @@ export component AppWindow inherits Window {
                     }
                 }
 
+                // Spacer to push clear button down
+                Rectangle {
+                    vertical-stretch: 1;
+                }
+
+                // Clear button with icon
                 Rectangle {
                     width: 24px;
                     height: 24px;
                     background: transparent;
-                }
 
-                // Clear button
-                Rectangle {
-                    width: 20px;
-                    height: 20px;
-                    background: transparent;
-
-                    Text {
-                        text: "✕";
-                        color: ThemeManager.is-dark ? #ffffff : #1a1a1a;
-                        font-size: 20px;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
+                    Image {
+                        source: @image-url("assets/delete.svg");
+                        width: 20px;
+                        height: 20px;
+                        colorize: ThemeManager.is-dark ? #ffffff : #1a1a1a;
                     }
 
                     TouchArea {
@@ -1209,9 +1269,10 @@ export component AppWindow inherits Window {
                     }
                 }
 
+                // Minimize button
                 Rectangle {
-                    width: 20px;
-                    height: 20px;
+                    width: 24px;
+                    height: 24px;
                     background: transparent;
 
                     Text {
@@ -1232,9 +1293,34 @@ export component AppWindow inherits Window {
                     }
                 }
 
+                // Favorite button
                 Rectangle {
-                    width: 20px;
-                    height: 20px;
+                    width: 24px;
+                    height: 24px;
+                    background: transparent;
+
+                    Image {
+                        source: @image-url("assets/favorite.svg");
+                        width: 20px;
+                        height: 20px;
+                        colorize: ThemeManager.is-dark ? #ffffff : #1a1a1a;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    TouchArea {
+                        width: 100%;
+                        height: 100%;
+                        clicked => {
+                            root.toggle-favorite();
+                        }
+                    }
+                }
+
+                // Quit button (x)
+                Rectangle {
+                    width: 24px;
+                    height: 24px;
                     background: transparent;
 
                     Text {
@@ -1254,37 +1340,15 @@ export component AppWindow inherits Window {
                         }
                     }
                 }
-                
-                // Settings button
-                Rectangle {
-                    width: 20px;
-                    height: 20px;
-                    background: transparent;
 
-                    Text {
-                        text: "⚙";
-                        color: ThemeManager.is-dark ? #ffffff : #1a1a1a;
-                        font-size: 20px;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
-                    }
-
-                    TouchArea {
-                        width: 100%;
-                        height: 100%;
-                        clicked => {
-                            root.toggle-settings();
-                        }
-                    }
-                }
-
-                // Share button - fixed at bottom
+                // Spacer to push share button to bottom
                 Rectangle {
                     vertical-stretch: 1;
                 }
 
+                // Share button - fixed at bottom
                 Image {
-                    source: @image-url("share.svg");
+                    source: @image-url("assets/share.svg");
                     width: 24px;
                     height: 24px;
                     colorize: ThemeManager.is-dark ? #ffffff : #1a1a1a;

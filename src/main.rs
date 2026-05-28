@@ -111,7 +111,6 @@ fn main() {
 
     const WINDOW_WIDTH: f32 = 280.0;
     const WINDOW_HEIGHT: f32 = 396.0;
-    const HIDDEN_WINDOW_SIZE: f32 = 1.0;
 
     eprintln!("Starting PasteBridge...");
 
@@ -264,10 +263,12 @@ fn main() {
         }
     };
 
+    let mem_for_tray = memory_monitor_clone.clone();
     let handles = tray::setup_tray();
     let _tray_icon = handles.tray_icon;
     let weak_for_tray = app_weak.clone();
     tray::start_tray_event_loop(handles.show_id, handles.quit_id, hotkey_id, move || {
+        let mem = mem_for_tray.clone();
         let _ = slint::invoke_from_event_loop({
             let weak = weak_for_tray.clone();
             move || {
@@ -275,22 +276,32 @@ fn main() {
                     use slint::ComponentHandle;
                     let is_visible = tray::IS_VISIBLE.load(Ordering::SeqCst);
                     if is_visible {
-                        // Hide: shrink + fade out + move off-screen
+                        // Hide: 使用 window.hide() 释放 UI 资源
                         let hwnd_isize = window_effects::APP_HWND.load(Ordering::SeqCst);
                         if hwnd_isize != 0 {
                             let hwnd = windows::Win32::Foundation::HWND(hwnd_isize as *mut std::ffi::c_void);
                             window_effects::fade_out(hwnd);
                         }
-                        app.window().set_size(slint::LogicalSize::new(HIDDEN_WINDOW_SIZE, HIDDEN_WINDOW_SIZE));
-                        let _ = app.window().set_position(slint::PhysicalPosition::new(-10000, -10000));
+                        
+                        let _ = app.window().hide();
                         tray::IS_VISIBLE.store(false, Ordering::SeqCst);
+                        
+                        let freed = mem.trim_working_set();
+                        eprintln!("[memory] Tray: Window hidden, freed {}",
+                            freed.map_or("N/A".to_string(), |b| paste_bridge_core::memory::MemoryMonitor::format_memory(b)));
                     } else {
-                        // Show: restore size + position + bring to front + fade in
+                        // Show: 使用 window.show() 重新显示窗口
                         app.window().set_size(slint::LogicalSize::new(WINDOW_WIDTH, WINDOW_HEIGHT));
                         let pos = calc_window_position(&app, WINDOW_WIDTH as i32, WINDOW_HEIGHT as i32);
                         let _ = app.window().set_position(pos);
+                        
+                        // 使用 window.show() 显示窗口
+                        let _ = app.window().show();
                         tray::IS_VISIBLE.store(true, Ordering::SeqCst);
+                        
+                        eprintln!("[memory] Tray: Window shown");
 
+                        // 激活窗口并淡入
                         let hwnd_isize = window_effects::APP_HWND.load(Ordering::SeqCst);
                         if hwnd_isize != 0 {
                             let hwnd = windows::Win32::Foundation::HWND(hwnd_isize as *mut std::ffi::c_void);
@@ -319,25 +330,27 @@ fn main() {
         }
     });
 
-    let weak2 = app_weak.clone();
     let mem_for_hide = memory_monitor_clone.clone();
+    let weak2 = app_weak.clone();
     app.on_hide_window(move || {
         if let Some(app) = weak2.upgrade() {
             use slint::ComponentHandle;
-            app.window().set_size(slint::LogicalSize::new(HIDDEN_WINDOW_SIZE, HIDDEN_WINDOW_SIZE));
+            
+            // 执行淡出动画
             let hwnd_isize = window_effects::APP_HWND.load(Ordering::SeqCst);
             if hwnd_isize != 0 {
                 let hwnd = windows::Win32::Foundation::HWND(hwnd_isize as *mut std::ffi::c_void);
                 window_effects::fade_out(hwnd);
             }
-            let _ = app.window().set_position(slint::PhysicalPosition::new(-10000, -10000));
+            
+            // 使用 window.hide() 完全释放 UI 资源
+            // 注意：由于 DummyWindow 在运行事件循环，程序不会退出
+            let _ = app.window().hide();
             tray::IS_VISIBLE.store(false, Ordering::SeqCst);
-
-            // Trim working set to release idle memory
-            if let Some(freed) = mem_for_hide.trim_working_set() {
-                eprintln!("[memory] Working set trimmed: {} freed",
-                    paste_bridge_core::memory::MemoryMonitor::format_memory(freed));
-            }
+            
+            let freed = mem_for_hide.trim_working_set();
+            eprintln!("[memory] Window hidden, freed {}",
+                freed.map_or("N/A".to_string(), |b| paste_bridge_core::memory::MemoryMonitor::format_memory(b)));
         }
     });
 
@@ -415,6 +428,8 @@ fn main() {
                             }
                         }
                     }
+                    // Ensure tooltip is on top when content is updated
+                    crate::tooltip::bring_tooltip_to_front();
                 }
             }
         }
@@ -441,83 +456,6 @@ fn main() {
         }
     });
 
-    let entries_for_hover2 = clipboard_entries_clone.clone();
-    let state_for_hover2 = state.clone();
-    let popup_for_set = popup_tooltip_clone.clone();
-    let app_weak_for_pos2 = app_weak.clone();
-    app.on_set_hovered_index(move |index: i32| {
-        if index < 0 {
-            let popup_lock = popup_for_set.lock().unwrap();
-            if let Some(ref popup) = *popup_lock {
-                popup.set_show_pending(false);
-                popup.set_show_state(false);
-            }
-        } else {
-            let idx = index as usize;
-            let entries = entries_for_hover2.lock().unwrap();
-            if idx >= entries.len() {
-                return;
-            }
-            let id = entries[idx].id;
-            if let Some(item) = state_for_hover2.get_item(id) {
-                if let Some(text) = item.content_text {
-                    let popup_lock = popup_for_set.lock().unwrap();
-                    if let Some(ref popup) = *popup_lock {
-                        popup.set_content_text(text.into());
-                        
-                        let timestamp_str = {
-                            let unix_ts_secs = item.created_at / 1000;
-                            let dt = chrono::DateTime::from_timestamp(unix_ts_secs, 0)
-                                .unwrap_or_else(|| chrono::Utc::now());
-                            let local = dt.with_timezone(&chrono::Local);
-                            local.format("%Y-%m-%d %H:%M:%S").to_string()
-                        };
-                        popup.set_content_timestamp(timestamp_str.into());
-                        
-                        popup.set_show_pending(true);
-                        popup.set_show_state(false);
-                        
-                        #[cfg(target_os = "windows")]
-                        {
-                            use windows::Win32::UI::WindowsAndMessaging::*;
-                            use windows::Win32::Foundation::*;
-                            
-                            unsafe {
-                                let mut point = POINT { x: 0, y: 0 };
-                                if GetCursorPos(&mut point).is_ok() {
-                                    let tooltip_w = 200;
-                                    let tooltip_h = 380;
-                                    
-                                    let screen_w = GetSystemMetrics(SM_CXSCREEN);
-                                    let screen_h = GetSystemMetrics(SM_CYSCREEN);
-                                    
-                                    let mut popup_x = point.x;
-                                    let mut popup_y = point.y;
-                                    
-                                    if popup_x + tooltip_w > screen_w {
-                                        popup_x = point.x - tooltip_w;
-                                    }
-                                    if popup_x < 0 {
-                                        popup_x = 0;
-                                    }
-                                    
-                                    if popup_y + tooltip_h > screen_h {
-                                        popup_y = point.y - tooltip_h;
-                                    }
-                                    if popup_y < 0 {
-                                        popup_y = 0;
-                                    }
-                                    
-                                    popup.window().set_position(slint::PhysicalPosition::new(popup_x, popup_y));
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    });
-
     let state_for_clear = state.clone();
     let app_for_clear = app.as_weak();
     app.on_clear_history(move || {
@@ -532,25 +470,26 @@ fn main() {
         eprintln!("Clipboard history cleared");
     });
 
-    let weak3 = app_weak.clone();
     let mem_for_minimize = memory_monitor_clone.clone();
+    let weak3 = app_weak.clone();
     app.on_minimize_window(move || {
         if let Some(app) = weak3.upgrade() {
             use slint::ComponentHandle;
-            app.window().set_size(slint::LogicalSize::new(HIDDEN_WINDOW_SIZE, HIDDEN_WINDOW_SIZE));
+            
+            // 执行淡出动画
             let hwnd_isize = window_effects::APP_HWND.load(Ordering::SeqCst);
             if hwnd_isize != 0 {
                 let hwnd = windows::Win32::Foundation::HWND(hwnd_isize as *mut std::ffi::c_void);
                 window_effects::fade_out(hwnd);
             }
-            let _ = app.window().set_position(slint::PhysicalPosition::new(-10000, -10000));
+            
+            // 使用 window.hide() 完全释放 UI 资源
+            let _ = app.window().hide();
             tray::IS_VISIBLE.store(false, Ordering::SeqCst);
-
-            // Trim working set to release idle memory
-            if let Some(freed) = mem_for_minimize.trim_working_set() {
-                eprintln!("[memory] Working set trimmed: {} freed",
-                    paste_bridge_core::memory::MemoryMonitor::format_memory(freed));
-            }
+            
+            let freed = mem_for_minimize.trim_working_set();
+            eprintln!("[memory] Window minimized (hidden), freed {}",
+                freed.map_or("N/A".to_string(), |b| paste_bridge_core::memory::MemoryMonitor::format_memory(b)));
         }
     });
 
@@ -648,6 +587,8 @@ fn main() {
                     if let Some(popup) = popup_win_weak.upgrade() {
                         popup.set_show_state(true);
                         popup.show().unwrap();
+                        // Ensure tooltip is on top of main window after showing
+                        crate::tooltip::bring_tooltip_to_front();
                     }
                 }
             });
@@ -663,29 +604,27 @@ fn main() {
             {
                 use std::thread;
                 use std::time::Duration;
-                use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, EnumWindows, GetWindowTextW, GetClassNameW};
+                use windows::Win32::UI::WindowsAndMessaging::{EnumWindows, GetWindowTextW, GetClassNameW};
                 use windows::Win32::Foundation::{HWND, BOOL, LPARAM};
-                use windows::core::PCWSTR;
 
                 thread::spawn(move || {
                     let mut found_hwnd = HWND::default();
                     
-                    static mut FOUND_HWND: HWND = HWND(std::ptr::null_mut());
+                    static mut TARGET_APP_HWND: isize = 0;
+                    static mut FOUND_TOOLTIP_HWND: isize = 0;
                     
                     unsafe extern "system" fn enum_windows_proc(hwnd: HWND, _lparam: LPARAM) -> BOOL {
                         let mut class_buf = [0u16; 256];
                         let class_len = GetClassNameW(hwnd, &mut class_buf);
                         let class_name = String::from_utf16_lossy(&class_buf[..class_len as usize]);
                         
-                        // Slint windows usually have a specific class name
                         if class_name.contains("Slint") || class_name.contains("winit") {
                             let mut title_buf = [0u16; 256];
                             let title_len = GetWindowTextW(hwnd, &mut title_buf);
                             let title = String::from_utf16_lossy(&title_buf[..title_len as usize]);
                             
-                            // Tooltip window should have empty title
-                            if title.is_empty() {
-                                FOUND_HWND = hwnd;
+                            if title.is_empty() && hwnd.0 as isize != TARGET_APP_HWND {
+                                FOUND_TOOLTIP_HWND = hwnd.0 as isize;
                                 return BOOL(0);
                             }
                         }
@@ -693,35 +632,43 @@ fn main() {
                         BOOL(1)
                     }
                     
-                    for _ in 0..50 {
-                        FOUND_HWND = HWND::default();
+                    unsafe {
+                        TARGET_APP_HWND = crate::window_effects::APP_HWND.load(std::sync::atomic::Ordering::SeqCst);
                         
-                        // Try to find the tooltip window
-                        let _ = EnumWindows(Some(enum_windows_proc), LPARAM(0));
-                        found_hwnd = FOUND_HWND;
-                        
-                        if !found_hwnd.is_invalid() {
-                            // Verify it's not the main window
-                            let app_hwnd = crate::window_effects::APP_HWND.load(std::sync::atomic::Ordering::SeqCst);
-                            if found_hwnd.0 as isize != app_hwnd {
+                        for _ in 0..20 {
+                            FOUND_TOOLTIP_HWND = 0;
+                            
+                            let _ = EnumWindows(Some(enum_windows_proc), LPARAM(0));
+                            
+                            if FOUND_TOOLTIP_HWND != 0 {
+                                found_hwnd = HWND(FOUND_TOOLTIP_HWND as *mut std::ffi::c_void);
                                 break;
                             }
+                            
+                            thread::sleep(Duration::from_millis(50));
                         }
                         
-                        thread::sleep(Duration::from_millis(20));
-                    }
-                    
-                    if !found_hwnd.is_invalid() {
-                        crate::tooltip::set_tooltip_hwnd(found_hwnd.0 as isize);
-                        eprintln!("[popup] Tooltip HWND found: {:?}", found_hwnd);
-                    } else {
-                        eprintln!("[popup] Failed to find tooltip HWND");
+                        if !found_hwnd.is_invalid() {
+                            crate::tooltip::set_tooltip_hwnd(found_hwnd.0 as isize);
+                            eprintln!("[popup] Tooltip HWND found: {:?}", found_hwnd);
+                            crate::tooltip::bring_tooltip_to_front();
+                        } else {
+                            eprintln!("[popup] Failed to find tooltip HWND");
+                        }
                     }
                 });
             }
         }
     }
 
-    app.run().ok();
+    // 创建守护窗口来运行 Slint 事件循环
+    // 这样即使主窗口隐藏，程序也能继续运行
+    let dummy_window = DummyWindow::new().unwrap();
+    
+    // 运行守护窗口的事件循环
+    // 注意：Slint 只能运行一个窗口的事件循环
+    // 主窗口 (app) 会被显示，但事件循环由 dummy_window 管理
+    dummy_window.run().ok();
+    
     eprintln!("App run() finished");
 }
