@@ -384,14 +384,36 @@ fn main() {
                 let popup_lock = popup_for_show.lock().unwrap();
                 if let Some(ref popup) = *popup_lock {
                     popup.set_content_text(text.into());
+                    
+                    let timestamp_str = {
+                        let unix_ts_secs = item.created_at / 1000;
+                        let dt = chrono::DateTime::from_timestamp(unix_ts_secs, 0)
+                            .unwrap_or_else(|| chrono::Utc::now());
+                        let local = dt.with_timezone(&chrono::Local);
+                        local.format("%Y-%m-%d %H:%M:%S").to_string()
+                    };
+                    popup.set_content_timestamp(timestamp_str.into());
+                    
                     popup.set_show_pending(true);
                     popup.set_show_state(false);
 
-                    if let Some(main_app) = app_weak_for_pos.upgrade() {
-                        let app_pos = main_app.window().position();
-                        let popup_x = app_pos.x - 210;
-                        let popup_y = app_pos.y + 10;
-                        popup.window().set_position(slint::PhysicalPosition::new(popup_x, popup_y));
+                    #[cfg(target_os = "windows")]
+                    {
+                        use windows::Win32::UI::WindowsAndMessaging::*;
+                        use windows::Win32::Foundation::*;
+                        
+                        unsafe {
+                            let mut point = POINT { x: 0, y: 0 };
+                            if GetCursorPos(&mut point).is_ok() {
+                                let screen_w = GetSystemMetrics(SM_CXSCREEN);
+                                let screen_h = GetSystemMetrics(SM_CYSCREEN);
+                                
+                                popup.set_mouse_x(point.x as f32);
+                                popup.set_mouse_y(point.y as f32);
+                                popup.set_screen_width(screen_w as f32);
+                                popup.set_screen_height(screen_h as f32);
+                            }
+                        }
                     }
                 }
             }
@@ -442,13 +464,53 @@ fn main() {
                     let popup_lock = popup_for_set.lock().unwrap();
                     if let Some(ref popup) = *popup_lock {
                         popup.set_content_text(text.into());
+                        
+                        let timestamp_str = {
+                            let unix_ts_secs = item.created_at / 1000;
+                            let dt = chrono::DateTime::from_timestamp(unix_ts_secs, 0)
+                                .unwrap_or_else(|| chrono::Utc::now());
+                            let local = dt.with_timezone(&chrono::Local);
+                            local.format("%Y-%m-%d %H:%M:%S").to_string()
+                        };
+                        popup.set_content_timestamp(timestamp_str.into());
+                        
                         popup.set_show_pending(true);
                         popup.set_show_state(false);
-                        if let Some(main_app) = app_weak_for_pos2.upgrade() {
-                            let app_pos = main_app.window().position();
-                            let popup_x = app_pos.x - 210;
-                            let popup_y = app_pos.y + 10;
-                            popup.window().set_position(slint::PhysicalPosition::new(popup_x, popup_y));
+                        
+                        #[cfg(target_os = "windows")]
+                        {
+                            use windows::Win32::UI::WindowsAndMessaging::*;
+                            use windows::Win32::Foundation::*;
+                            
+                            unsafe {
+                                let mut point = POINT { x: 0, y: 0 };
+                                if GetCursorPos(&mut point).is_ok() {
+                                    let tooltip_w = 200;
+                                    let tooltip_h = 380;
+                                    
+                                    let screen_w = GetSystemMetrics(SM_CXSCREEN);
+                                    let screen_h = GetSystemMetrics(SM_CYSCREEN);
+                                    
+                                    let mut popup_x = point.x;
+                                    let mut popup_y = point.y;
+                                    
+                                    if popup_x + tooltip_w > screen_w {
+                                        popup_x = point.x - tooltip_w;
+                                    }
+                                    if popup_x < 0 {
+                                        popup_x = 0;
+                                    }
+                                    
+                                    if popup_y + tooltip_h > screen_h {
+                                        popup_y = point.y - tooltip_h;
+                                    }
+                                    if popup_y < 0 {
+                                        popup_y = 0;
+                                    }
+                                    
+                                    popup.window().set_position(slint::PhysicalPosition::new(popup_x, popup_y));
+                                }
+                            }
                         }
                     }
                 }
@@ -509,6 +571,15 @@ fn main() {
         }
     });
 
+    let app_for_share = app.as_weak();
+    app.on_toggle_share(move || {
+        if let Some(app) = app_for_share.upgrade() {
+            use slint::ComponentHandle;
+            let current = app.get_share_visible();
+            app.set_share_visible(!current);
+        }
+    });
+
     let state_for_mock = state.clone();
     let app_for_mock = app.as_weak();
     let entries_for_mock = clipboard_entries_clone.clone();
@@ -554,12 +625,15 @@ fn main() {
         }
     });
 
+    tooltip::start_tooltip_zorder_monitor();
+
     eprintln!("About to run app...");
 
     {
         let mut popup_guard = popup_tooltip.lock().unwrap();
         if popup_guard.is_none() {
             let popup_win = PopupTooltipWindow::new().unwrap();
+            
             popup_win.on_hide_window({
                 let popup_win_weak = popup_win.as_weak();
                 move || {
@@ -570,27 +644,81 @@ fn main() {
             });
             popup_win.on_on_delay_show({
                 let popup_win_weak = popup_win.as_weak();
-                let app_weak_for_pos = app_weak.clone();
                 move || {
                     if let Some(popup) = popup_win_weak.upgrade() {
-                        if let Some(main_app) = app_weak_for_pos.upgrade() {
-                            let app_pos = main_app.window().position();
-                            let popup_x = app_pos.x - 210;
-                            let popup_y = app_pos.y + 10;
-                            popup.window().set_position(slint::PhysicalPosition::new(popup_x, popup_y));
-                        }
                         popup.set_show_state(true);
                         popup.show().unwrap();
                     }
                 }
             });
-            popup_win.window().set_size(slint::LogicalSize::new(200.0, 400.0));
+            
+            popup_win.window().set_size(slint::LogicalSize::new(200.0, 200.0));
             popup_win.window().set_position(slint::PhysicalPosition::new(-10000, -10000));
             popup_win.hide().unwrap();
-            // Store weak reference for delayed hide
             *popup_weak_holder.lock().unwrap() = Some(popup_win.as_weak());
             *popup_guard = Some(popup_win);
             eprintln!("[popup] Tooltip popup window created");
+            
+            #[cfg(target_os = "windows")]
+            {
+                use std::thread;
+                use std::time::Duration;
+                use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, EnumWindows, GetWindowTextW, GetClassNameW};
+                use windows::Win32::Foundation::{HWND, BOOL, LPARAM};
+                use windows::core::PCWSTR;
+
+                thread::spawn(move || {
+                    let mut found_hwnd = HWND::default();
+                    
+                    static mut FOUND_HWND: HWND = HWND(std::ptr::null_mut());
+                    
+                    unsafe extern "system" fn enum_windows_proc(hwnd: HWND, _lparam: LPARAM) -> BOOL {
+                        let mut class_buf = [0u16; 256];
+                        let class_len = GetClassNameW(hwnd, &mut class_buf);
+                        let class_name = String::from_utf16_lossy(&class_buf[..class_len as usize]);
+                        
+                        // Slint windows usually have a specific class name
+                        if class_name.contains("Slint") || class_name.contains("winit") {
+                            let mut title_buf = [0u16; 256];
+                            let title_len = GetWindowTextW(hwnd, &mut title_buf);
+                            let title = String::from_utf16_lossy(&title_buf[..title_len as usize]);
+                            
+                            // Tooltip window should have empty title
+                            if title.is_empty() {
+                                FOUND_HWND = hwnd;
+                                return BOOL(0);
+                            }
+                        }
+                        
+                        BOOL(1)
+                    }
+                    
+                    for _ in 0..50 {
+                        FOUND_HWND = HWND::default();
+                        
+                        // Try to find the tooltip window
+                        let _ = EnumWindows(Some(enum_windows_proc), LPARAM(0));
+                        found_hwnd = FOUND_HWND;
+                        
+                        if !found_hwnd.is_invalid() {
+                            // Verify it's not the main window
+                            let app_hwnd = crate::window_effects::APP_HWND.load(std::sync::atomic::Ordering::SeqCst);
+                            if found_hwnd.0 as isize != app_hwnd {
+                                break;
+                            }
+                        }
+                        
+                        thread::sleep(Duration::from_millis(20));
+                    }
+                    
+                    if !found_hwnd.is_invalid() {
+                        crate::tooltip::set_tooltip_hwnd(found_hwnd.0 as isize);
+                        eprintln!("[popup] Tooltip HWND found: {:?}", found_hwnd);
+                    } else {
+                        eprintln!("[popup] Failed to find tooltip HWND");
+                    }
+                });
+            }
         }
     }
 

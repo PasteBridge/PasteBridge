@@ -1,6 +1,5 @@
-import { ScrollView } from "std-widgets.slint";
+import { ScrollView, ListView } from "std-widgets.slint";
 import { ThemeManager, DarkTheme, LightTheme } from "themes.slint";
-import { ListView } from "../../../../slint/ui-libraries/material/src/ui/components/list_view.slint";
 
 export struct IssueData {
     id: int,
@@ -17,6 +16,72 @@ export struct VersionData {
     version_number: int,
     created_at: string,
     comment: string,
+}
+
+export component Panel {
+    in property <string> title: "Panel";
+    in property <bool> show-close-button: true;
+    in property <bool> is-visible: false;
+    
+    callback close();
+    
+    Rectangle {
+        background: ThemeManager.is-dark ? rgba(30, 30, 30, 0.67) : rgba(255, 255, 255, 0.978);
+        opacity: root.is-visible ? 1.0 : 0.0;
+        animate opacity {
+            duration: 200ms;
+            easing: ease-out;
+        }
+        
+        VerticalLayout {
+            width: parent.width;
+            padding: 16px;
+            spacing: 12px;
+            
+            HorizontalLayout {
+                spacing: 8px;
+                
+                Text {
+                    text: root.title;
+                    color: ThemeManager.is-dark ? #ffffff : #1a1a1a;
+                    font-size: 18px;
+                    font-weight: 600;
+                    horizontal-alignment: left;
+                    vertical-alignment: center;
+                }
+                
+                Rectangle { vertical-stretch: 0; horizontal-stretch: 1; }
+                
+                if root.show-close-button: Rectangle {
+                    width: 28px;
+                    height: 28px;
+                    background: ThemeManager.is-dark ? rgba(255, 255, 255, 0.1) : rgba(0, 0, 0, 0.05);
+                    border-radius: 4px;
+                    
+                    Text {
+                        text: "←";
+                        color: ThemeManager.is-dark ? #ffffff : #1a1a1a;
+                        font-size: 14px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    
+                    TouchArea {
+                        width: 100%;
+                        height: 100%;
+                        clicked => {
+                            root.close();
+                        }
+                    }
+                }
+            }
+            
+            Rectangle {
+                height: 1px;
+                background: ThemeManager.is-dark ? rgba(255, 255, 255, 0.1) : rgba(0, 0, 0, 0.1);
+            }
+        }
+    }
 }
 
 export component AppWindow inherits Window {
@@ -41,10 +106,12 @@ export component AppWindow inherits Window {
     callback copy-item(index: int);
     callback clear-history();
     callback toggle-settings();
+    callback toggle-share();
     callback show-hover-tooltip(text: string);
     callback show-hover-tooltip-index(index: int);
     callback hide-hover-tooltip();
     callback set-hovered-index(index: int);
+    callback on-window-moved();
     callback toggle-theme();
     callback toggle-issues();
     callback select-issue(index: int);
@@ -66,6 +133,7 @@ export component AppWindow inherits Window {
     in-out property <bool> settings-visible: false;
     in-out property <bool> issues-visible: false;
     in-out property <bool> versions-visible: false;
+    in-out property <bool> share-visible: false;
 
     // Window positioning mode: 0 = golden ratio centered, 1 = follow mouse cursor
     in-out property <int> window-position-mode: 1;
@@ -809,47 +877,110 @@ export component AppWindow inherits Window {
                 }
             }
 
-            // History panel - contains: ScrollView, divider, search box
-            if !root.settings-visible && !root.issues-visible && !root.versions-visible: VerticalLayout {
+            // Share panel
+            share-panel := Rectangle {
+                background: ThemeManager.is-dark ? rgba(30, 30, 30, 0.67) : rgba(255, 255, 255, 0.978);
+                opacity: 0.0;
+                
+                states [
+                    visible when root.share-visible: {
+                        opacity: 1.0;
+                        out {
+                            animate opacity {
+                                duration: 100ms;
+                                easing: ease-out;
+                            }
+                        }
+                        in {
+                            animate opacity {
+                                duration: 100ms;
+                                easing: ease-out;
+                            }
+                        }
+                    }
+                ]
+                
+                VerticalLayout {
+                    width: parent.width;
+                    padding: 16px;
+                    spacing: 12px;
+                    
+                    HorizontalLayout {
+                        spacing: 8px;
+                        
+                        Text {
+                            text: "同步";
+                            color: ThemeManager.is-dark ? #ffffff : #1a1a1a;
+                            font-size: 18px;
+                            font-weight: 600;
+                            horizontal-alignment: left;
+                            vertical-alignment: center;
+                        }
+                        
+                        Rectangle { vertical-stretch: 0; horizontal-stretch: 1; }
+                        
+                        Rectangle {
+                            width: 80px;
+                            height: 28px;
+                            background: ThemeManager.is-dark ? rgba(0, 120, 212, 0.3) : rgba(0, 120, 212, 0.12);
+                            border-radius: 6px;
+                            border-width: 1px;
+                            border-color: #0078d4;
+                            
+                            Text {
+                                text: "+ 配对设备";
+                                color: #0078d4;
+                                font-size: 12px;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                            
+                            TouchArea {
+                                width: 100%;
+                                height: 100%;
+                                clicked => {
+                                    // Pair device action
+                                }
+                            }
+                        }
+                    }
+                    
+                    Rectangle {
+                        height: 1px;
+                        background: ThemeManager.is-dark ? rgba(255, 255, 255, 0.1) : rgba(0, 0, 0, 0.1);
+                    }
+                    
+                    VerticalLayout {
+                        spacing: 12px;
+                        
+                        Text {
+                            text: "暂无同步设备";
+                            color: ThemeManager.is-dark ? rgba(255, 255, 255, 0.5) : rgba(0, 0, 0, 0.4);
+                            font-size: 13px;
+                            horizontal-alignment: center;
+                        }
+                    }
+                }
+            }
+
+            // History panel - contains: clipboard list
+            if !root.settings-visible && !root.issues-visible && !root.versions-visible && !root.share-visible: VerticalLayout {
                 spacing: 0px;
                 
-                // Material ListView - 虚拟化 + 惯性滚动
-                // ListView 只能有一个 for 子元素，padding 通过首尾 item 的空白来实现
+                // Clipboard history list with smooth flicking
                 ListView {
-                    vertical-stretch: 1;
-                    vertical-scrollbar-policy: ScrollBarPolicy.always-on;
-                    horizontal-scrollbar-policy: always-off;
 
                     for item[index] in root.clipboard-history: Rectangle {
-                        // 首项增加顶部 padding，最后一项增加底部 padding
-                        property <length> top-padding: index == 0 ? 13px : 0px;
-                        property <length> bottom-padding: index == root.clipboard-history.length - 1 ? 15px : 0px;
                         property <length> item-font-size: 13px;
                         property <length> item-line-height: 18px;
                         property <length> item-line-spacing: 4px;
                         property <length> item-text-height: item-line-height + item-font-size + item-line-spacing;
                         
-                        height: top-padding + item-text-height + 12px + 12px + bottom-padding;
+                        height: item-text-height + 12px + 12px;
 
-                        // 恢复原来的背景颜色计算
                         background: ta.pressed ? (ThemeManager.is-dark ? rgba(120, 120, 120, 0.8) : rgba(220, 220, 220, 0.95)) : 
                                     (ta.has-hover ? (ThemeManager.is-dark ? rgba(90, 90, 90, 0.6) : rgba(240, 240, 240, 0.9)) : 
                                     (ThemeManager.is-dark ? rgba(61, 61, 61, 0.4) : rgba(255, 255, 255, 0.8)));
-
-                        // 上边框（分割线）
-                        Rectangle {
-                            y: top-padding;
-                            width: parent.width;
-                            height: 1px;
-                            background: rgba(128, 128, 128, 0.2);
-                        }
-                        // 下边框（分割线）
-                        Rectangle {
-                            y: parent.height - bottom-padding - 1px;
-                            width: parent.width;
-                            height: 1px;
-                            background: rgba(128, 128, 128, 0.2);
-                        }
 
                         // 背景动画
                         animate background {
@@ -892,7 +1023,7 @@ export component AppWindow inherits Window {
 
                         // 文字容器
                         Rectangle {
-                            y: top-padding + 12px;
+                            y: 12px;
                             height: item-text-height;
                             clip: true;
                             
@@ -909,35 +1040,24 @@ export component AppWindow inherits Window {
                         }
                     }
                 }
+            }
 
-                //分割条
-                Rectangle {
-                    drop-shadow-color: ThemeManager.is-dark ? rgb(0, 0, 0) : rgba(0, 0, 0, 0.08);
-                    drop-shadow-offset-y: 5px;
-                    drop-shadow-blur: 10px;
-                    height: 1px;
-                    background: ThemeManager.is-dark ? #4d4d4d : #d0d0d0;
-                }
+            // Search box - overlaid on top layer
+            if !root.settings-visible && !root.issues-visible && !root.versions-visible && !root.share-visible: Rectangle {
+                y: parent.height - 40px;
+                height: 40px;
+                background: ThemeManager.is-dark ? rgba(0, 0, 0, 0.07) : rgba(255, 255, 255, 0.945);
 
-                // Bottom bar - Search box
-                Rectangle {
-                    // drop-shadow-color: ThemeManager.is-dark ? rgba(0, 0, 0, 0.3) : rgba(0, 0, 0, 0.1);
-                    // drop-shadow-offset-y: -10px;
-                    // drop-shadow-blur: 20px;
-                    height: 40px;
-                    background: ThemeManager.is-dark ? rgba(0, 0, 0, 0.07) : rgba(255, 255, 255, 0.945);
+                HorizontalLayout {
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    spacing: 8px;
 
-                    HorizontalLayout {
-                        padding-left: 12px;
-                        padding-right: 12px;
-                        spacing: 8px;
-
-                        Text {
-                            text: "搜索...";
-                            color: ThemeManager.is-dark ? rgba(255, 255, 255, 0.5) : rgba(0, 0, 0, 0.5);
-                            font-size: 12px;
-                            vertical-alignment: center;
-                        }
+                    Text {
+                        text: "搜索...";
+                        color: ThemeManager.is-dark ? rgba(255, 255, 255, 0.5) : rgba(0, 0, 0, 0.5);
+                        font-size: 12px;
+                        vertical-alignment: center;
                     }
                 }
             }
@@ -959,13 +1079,13 @@ export component AppWindow inherits Window {
             // drop-shadow-blur: 20px;
 
             TouchArea {
-                width: 100%;
-                height: 100%;
-                pointer-event(ev) => {
-                    if (ev.button == PointerEventButton.left && ev.kind == PointerEventKind.down) {
-                        root.start-drag();
+                    width: 100%;
+                    height: 100%;
+                    pointer-event(ev) => {
+                        if (ev.button == PointerEventButton.left && ev.kind == PointerEventKind.down) {
+                            root.start-drag();
+                        }
                     }
-                }
 
                 VerticalLayout {
                 padding-left: 10.5px;
@@ -1038,19 +1158,26 @@ export component AppWindow inherits Window {
                         ]
                     }
 
-                    TouchArea {
+                    property <bool> _was-moved: false;
+                    toggle-ta := TouchArea {
                         width: 100%;
                         height: 100%;
+                        moved => {
+                            _was-moved = true;
+                        }
+                        pointer-event(ev) => {
+                            if (ev.button == PointerEventButton.left && ev.kind == PointerEventKind.down) {
+                                root.start-drag();
+                                _was-moved = false;
+                            }
+                        }
                         clicked => {
-                            root.toggle-settings();
+                            if (!_was-moved) {
+                                root.toggle-settings();
+                            }
+                            _was-moved = false;
                         }
                     }
-                }
-
-                Image {
-                    source: @image-url("pin.png");
-                    width: 16px;
-                    height: 16px;
                 }
 
                 Rectangle {
@@ -1061,15 +1188,14 @@ export component AppWindow inherits Window {
 
                 // Clear button
                 Rectangle {
-                    width: 24px;
-                    height: 24px;
-                    background: ThemeManager.is-dark ? #555555 : #e0e0e0;
-                    border-radius: 4px;
+                    width: 20px;
+                    height: 20px;
+                    background: transparent;
 
                     Text {
-                        text: "🗑";
+                        text: "✕";
                         color: ThemeManager.is-dark ? #ffffff : #1a1a1a;
-                        font-size: 12px;
+                        font-size: 20px;
                         horizontal-alignment: center;
                         vertical-alignment: center;
                     }
@@ -1084,15 +1210,15 @@ export component AppWindow inherits Window {
                 }
 
                 Rectangle {
-                    width: 24px;
-                    height: 24px;
-                    background: ThemeManager.is-dark ? #555555 : #e0e0e0;
-                    border-radius: 4px;
+                    width: 20px;
+                    height: 20px;
+                    background: transparent;
 
                     Text {
-                        text: "❤";
+                        text: "—";
                         color: ThemeManager.is-dark ? #ffffff : #1a1a1a;
-                        font-size: 14px;
+                        font-size: 20px;
+                        font-weight: 700;
                         horizontal-alignment: center;
                         vertical-alignment: center;
                     }
@@ -1107,15 +1233,15 @@ export component AppWindow inherits Window {
                 }
 
                 Rectangle {
-                    width: 24px;
-                    height: 24px;
-                    background: ThemeManager.is-dark ? #e81123 : #ff6b6b;
-                    border-radius: 4px;
+                    width: 20px;
+                    height: 20px;
+                    background: transparent;
 
                     Text {
-                        text: "X";
-                        color: #ffffff;
-                        font-size: 14px;
+                        text: "×";
+                        color: ThemeManager.is-dark ? #ffffff : #1a1a1a;
+                        font-size: 20px;
+                        font-weight: 500;
                         horizontal-alignment: center;
                         vertical-alignment: center;
                     }
@@ -1131,15 +1257,14 @@ export component AppWindow inherits Window {
                 
                 // Settings button
                 Rectangle {
-                    width: 24px;
-                    height: 24px;
-                    background: ThemeManager.is-dark ? #0078d4 : #4a90d9;
-                    border-radius: 4px;
+                    width: 20px;
+                    height: 20px;
+                    background: transparent;
 
                     Text {
                         text: "⚙";
-                        color: #ffffff;
-                        font-size: 14px;
+                        color: ThemeManager.is-dark ? #ffffff : #1a1a1a;
+                        font-size: 20px;
                         horizontal-alignment: center;
                         vertical-alignment: center;
                     }
@@ -1153,55 +1278,7 @@ export component AppWindow inherits Window {
                     }
                 }
 
-                // GitHub Issues button
-                Rectangle {
-                    width: 24px;
-                    height: 24px;
-                    background: ThemeManager.is-dark ? #333333 : #e8e8e8;
-                    border-radius: 4px;
-
-                    Text {
-                        text: "📋";
-                        color: ThemeManager.is-dark ? #ffffff : #1a1a1a;
-                        font-size: 14px;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
-                    }
-
-                    TouchArea {
-                        width: 100%;
-                        height: 100%;
-                        clicked => {
-                            root.toggle-issues();
-                        }
-                    }
-                }
-
-                // Version history button
-                Rectangle {
-                    width: 24px;
-                    height: 24px;
-                    background: ThemeManager.is-dark ? #5c4033 : #d4a574;
-                    border-radius: 4px;
-
-                    Text {
-                        text: "📜";
-                        color: ThemeManager.is-dark ? #ffffff : #1a1a1a;
-                        font-size: 14px;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
-                    }
-
-                    TouchArea {
-                        width: 100%;
-                        height: 100%;
-                        clicked => {
-                            root.toggle-versions();
-                        }
-                    }
-                }
-
-                // Share button - fixed at bottom right, no background
+                // Share button - fixed at bottom
                 Rectangle {
                     vertical-stretch: 1;
                 }
@@ -1210,12 +1287,13 @@ export component AppWindow inherits Window {
                     source: @image-url("share.svg");
                     width: 24px;
                     height: 24px;
+                    colorize: ThemeManager.is-dark ? #ffffff : #1a1a1a;
 
                     TouchArea {
                         width: 100%;
                         height: 100%;
                         clicked => {
-                            // Share action
+                            root.toggle-share();
                         }
                     }
                 }
@@ -1227,17 +1305,34 @@ export component AppWindow inherits Window {
 
 export component PopupTooltipWindow inherits Window {
     width: 200px;
-    height: 400px;
+    min-height: 60px;
+    max-height: 200px;
     no-frame: true;
     always-on-top: true;
     background: transparent;
 
     in-out property <bool> show-state: false;
     in property <string> content-text: "";
+    in property <string> content-timestamp: "";
     in-out property <bool> show-pending: false;
+    
+    in property <length> mouse-x: 0px;
+    in property <length> mouse-y: 0px;
+    in property <length> screen-width: 1920px;
+    in property <length> screen-height: 1080px;
 
     callback hide-window();
     callback on-delay-show();
+
+    property <length> tooltip-x: root.mouse-x + 5px;
+    property <length> tooltip-y: root.mouse-y + 5px;
+    
+    property <length> adjusted-x: (tooltip-x + 200px > root.screen-width) ? (root.screen-width - 200px - 5px) : ((tooltip-x < 5px) ? 5px : tooltip-x);
+    
+    property <length> adjusted-y: (tooltip-y + 200px > root.screen-height) ? (root.screen-height - 200px - 5px) : ((tooltip-y < 5px) ? 5px : tooltip-y);
+
+    x: adjusted-x;
+    y: adjusted-y;
 
     container := Rectangle {
         opacity: 0.0;
@@ -1255,19 +1350,34 @@ export component PopupTooltipWindow inherits Window {
         ]
 
         VerticalLayout {
-            padding: 0px;
+            padding: 10px;
+            spacing: 6px;
 
-            ScrollView {
-                padding: 12px;
-                vertical-stretch: 1;
-                horizontal-scrollbar-policy: always-off;
-                vertical-scrollbar-policy: always-off;
-
-                Text {
-                    text: content-text;
-                    color: #dddddd;
-                    font-size: 13px;
-                    wrap: word-wrap;
+            Text {
+                text: content-text;
+                color: #dddddd;
+                font-size: 13px;
+                font-weight: 300;
+                wrap: word-wrap;
+                horizontal-alignment: left;
+                vertical-alignment: top;
+            }
+            
+            Rectangle {
+                height: 6px;
+            }
+            
+            Rectangle {
+                height: 13px;
+                HorizontalLayout {
+                    Rectangle { horizontal-stretch: 1; }
+                    Text {
+                        text: content-timestamp;
+                        color: rgba(255, 255, 255, 0.7);
+                        font-size: 11px;
+                        vertical-alignment: center;
+                        horizontal-alignment: right;
+                    }
                 }
             }
         }

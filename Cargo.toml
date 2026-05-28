@@ -15,7 +15,8 @@ hex = "0.4"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tiny_http = "0.12"
-windows = { version = "0.58", features = ["Win32_UI_WindowsAndMessaging", "Win32_Foundation", "Win32_System_LibraryLoader", "Win32_Graphics_Dwm", "Win32_UI_Controls", "Win32_Graphics_Gdi", "Win32_System_Threading", "Win32_System_ProcessStatus"] }
+chrono = "0.4"
+windows = { version = "0.58", features = ["Win32_UI_WindowsAndMessaging", "Win32_Foundation", "Win32_System_LibraryLoader", "Win32_Graphics_Dwm", "Win32_UI_Controls", "Win32_Graphics_Gdi", "Win32_System_Threading", "Win32_System_ProcessStatus", "Win32_System_Time"] }
 raw-window-handle = "0.6.2"
 window-vibrancy = "0.7.1"
 tray-icon = "0.14"
