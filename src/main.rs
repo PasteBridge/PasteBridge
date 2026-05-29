@@ -130,6 +130,7 @@ fn main() {
     app.window().set_size(slint::LogicalSize::new(WINDOW_WIDTH, WINDOW_HEIGHT));
     let pos = calc_window_position(&app, WINDOW_WIDTH as i32, WINDOW_HEIGHT as i32);
     let _ = app.window().set_position(pos);
+    app.window().show();
     tray::IS_VISIBLE.store(true, Ordering::SeqCst);
 
     let popup_tooltip = std::sync::Arc::new(std::sync::Mutex::new(None::<PopupTooltipWindow>));
@@ -213,6 +214,15 @@ fn main() {
 
                 let model = std::rc::Rc::new(slint::VecModel::from(items));
                 w.set_clipboard_history(model.into());
+
+                // 触发数据库更新动画：淡出100ms，淡入500ms，ease-out-quint
+                w.set_main_content_fade_out(true);
+                let w_clone = w.as_weak();
+                slint::Timer::single_shot(std::time::Duration::from_millis(100), move || {
+                    if let Some(w) = w_clone.upgrade() {
+                        w.set_main_content_fade_out(false);
+                    }
+                });
 
                 if let Some(before) = mem_before {
                     let mem_after = mem.update();
@@ -465,6 +475,15 @@ fn main() {
             if let Some(w) = app_clone.upgrade() {
                 let model = std::rc::Rc::new(slint::VecModel::<slint::SharedString>::from(vec![]));
                 w.set_clipboard_history(model.into());
+                
+                // 触发数据库更新动画：淡出100ms，淡入500ms，ease-out-quint
+                w.set_main_content_fade_out(true);
+                let w_clone = w.as_weak();
+                slint::Timer::single_shot(std::time::Duration::from_millis(100), move || {
+                    if let Some(w) = w_clone.upgrade() {
+                        w.set_main_content_fade_out(false);
+                    }
+                });
             }
         });
         eprintln!("Clipboard history cleared");
@@ -552,6 +571,15 @@ fn main() {
 
                 let model = std::rc::Rc::new(slint::VecModel::from(items));
                 w.set_clipboard_history(model.into());
+                
+                // 触发数据库更新动画：淡出100ms，淡入500ms，ease-out-quint
+                w.set_main_content_fade_out(true);
+                let w_clone = w.as_weak();
+                slint::Timer::single_shot(std::time::Duration::from_millis(100), move || {
+                    if let Some(w) = w_clone.upgrade() {
+                        w.set_main_content_fade_out(false);
+                    }
+                });
             }
         });
     });
@@ -599,65 +627,6 @@ fn main() {
             *popup_weak_holder.lock().unwrap() = Some(popup_win.as_weak());
             *popup_guard = Some(popup_win);
             eprintln!("[popup] Tooltip popup window created");
-            
-            #[cfg(target_os = "windows")]
-            {
-                use std::thread;
-                use std::time::Duration;
-                use windows::Win32::UI::WindowsAndMessaging::{EnumWindows, GetWindowTextW, GetClassNameW};
-                use windows::Win32::Foundation::{HWND, BOOL, LPARAM};
-
-                thread::spawn(move || {
-                    let mut found_hwnd = HWND::default();
-                    
-                    static mut TARGET_APP_HWND: isize = 0;
-                    static mut FOUND_TOOLTIP_HWND: isize = 0;
-                    
-                    unsafe extern "system" fn enum_windows_proc(hwnd: HWND, _lparam: LPARAM) -> BOOL {
-                        let mut class_buf = [0u16; 256];
-                        let class_len = GetClassNameW(hwnd, &mut class_buf);
-                        let class_name = String::from_utf16_lossy(&class_buf[..class_len as usize]);
-                        
-                        if class_name.contains("Slint") || class_name.contains("winit") {
-                            let mut title_buf = [0u16; 256];
-                            let title_len = GetWindowTextW(hwnd, &mut title_buf);
-                            let title = String::from_utf16_lossy(&title_buf[..title_len as usize]);
-                            
-                            if title.is_empty() && hwnd.0 as isize != TARGET_APP_HWND {
-                                FOUND_TOOLTIP_HWND = hwnd.0 as isize;
-                                return BOOL(0);
-                            }
-                        }
-                        
-                        BOOL(1)
-                    }
-                    
-                    unsafe {
-                        TARGET_APP_HWND = crate::window_effects::APP_HWND.load(std::sync::atomic::Ordering::SeqCst);
-                        
-                        for _ in 0..20 {
-                            FOUND_TOOLTIP_HWND = 0;
-                            
-                            let _ = EnumWindows(Some(enum_windows_proc), LPARAM(0));
-                            
-                            if FOUND_TOOLTIP_HWND != 0 {
-                                found_hwnd = HWND(FOUND_TOOLTIP_HWND as *mut std::ffi::c_void);
-                                break;
-                            }
-                            
-                            thread::sleep(Duration::from_millis(50));
-                        }
-                        
-                        if !found_hwnd.is_invalid() {
-                            crate::tooltip::set_tooltip_hwnd(found_hwnd.0 as isize);
-                            eprintln!("[popup] Tooltip HWND found: {:?}", found_hwnd);
-                            crate::tooltip::bring_tooltip_to_front();
-                        } else {
-                            eprintln!("[popup] Failed to find tooltip HWND");
-                        }
-                    }
-                });
-            }
         }
     }
 

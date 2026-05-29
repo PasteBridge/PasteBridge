@@ -29,7 +29,7 @@ where
         eprintln!("[core:clipboard] Clipboard initialized");
 
         loop {
-            thread::sleep(Duration::from_millis(800));
+            thread::sleep(Duration::from_millis(100));
 
             if let Ok(content) = clipboard.get_text() {
                 if !content.is_empty() {
