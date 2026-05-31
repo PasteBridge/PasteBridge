@@ -5,7 +5,7 @@
 #include <cstring>
 
 // Helper for std::search with trivial char types (from <xutility>)
-extern "C" const char* __std_search_1(
+const char* pastebridge_std_search_1(
     const char* _First1, const char* _Last1,
     const char* _First2, const char* _Last2) noexcept {
     const auto _Count2 = _Last2 - _First2;
@@ -18,7 +18,7 @@ extern "C" const char* __std_search_1(
 }
 
 // Helper for std::find_first_of with trivial char types (from <algorithm>)
-extern "C" const char* __std_find_first_of_trivial_pos_1(
+const char* pastebridge_std_find_first_of_trivial_pos_1(
     const char* _First1, const char* _Last1,
     const char* _First2, const char* _Last2) noexcept {
     for (auto _Ptr = _First1; _Ptr != _Last1; ++_Ptr) {

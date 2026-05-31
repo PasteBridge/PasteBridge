@@ -20,8 +20,7 @@ fn main() {
             .compile("msvc_stubs");
 
         println!(
-            "cargo:rustc-link-arg-bin=paste_bridge=/WHOLEARCHIVE:{}",
-            out_dir.join("msvc_stubs.lib").display()
+            "cargo:rustc-link-lib=static=msvc_stubs"
         );
     }
 }

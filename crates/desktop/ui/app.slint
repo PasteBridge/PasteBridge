@@ -143,7 +143,7 @@ export component AppWindow inherits Window {
     in-out property <bool> versions-visible: false;
     in-out property <bool> share-visible: false;
 
-    // Window positioning mode: 0 = golden ratio centered, 1 = follow mouse cursor
+    // Window positioning mode: 0 = golden ratio centered, 1 = follow mouse cursor (fallback when no input focus detected)
     in-out property <int> window-position-mode: 1;
     
     // Scroll indicator properties
@@ -290,8 +290,8 @@ export component AppWindow inherits Window {
                     
                     if root.settings-visible: VerticalLayout {
                         width: parent.width;
-                        padding: 16px;
-                        spacing: 12px;
+                        padding: 10px;
+                        spacing: 8px;
                     
                     // Header
                     HorizontalLayout {
@@ -299,7 +299,7 @@ export component AppWindow inherits Window {
                         Text {
                             text: "设置";
                             color: ThemeManager.is-dark ? #ffffff : #1a1a1a;
-                            font-size: 18px;
+                            font-size: 16px;
                             font-weight: 600;
                             horizontal-alignment: left;
                             vertical-alignment: center;
@@ -341,17 +341,17 @@ export component AppWindow inherits Window {
                     // Settings list with ScrollView
                     ScrollView {
                         vertical-stretch: 1;
-                        padding: 5px;
+                        padding: 3px;
                         horizontal-scrollbar-policy: always-off;
                         vertical-scrollbar-policy: always-off;
                         
                         VerticalLayout {
-                            spacing: 8px;
+                            spacing: 6px;
                             
                             // Theme toggle row
                             GridLayout {
                                 padding: 0px;
-                                spacing: 12px;
+                                spacing: 8px;
                                 Rectangle { 
                                     width: 0px; 
                                 }
@@ -359,7 +359,7 @@ export component AppWindow inherits Window {
                                 Text {
                                     text: "深色模式";
                                     color: ThemeManager.is-dark ? #ffffff : #1a1a1a;
-                                    font-size: 14px;
+                                    font-size: 13px;
                                     vertical-alignment: center;
                                 }
                                 
@@ -369,19 +369,19 @@ export component AppWindow inherits Window {
                                 
                                 // Theme toggle switch
                                 Rectangle {
-                                    width: 52px;
-                                    height: 30px;
+                                    width: 42px;
+                                    height: 24px;
                                     background: ThemeManager.is-dark ? #0078d4 : #cccccc;
-                                    border-radius: 15px;
+                                    border-radius: 12px;
                                     
                                     // Toggle knob
                                     Rectangle {
-                                        x: ThemeManager.is-dark ? 24px : 4px;
-                                        y: 3px;
-                                        width: 24px;
-                                        height: 24px;
+                                        x: ThemeManager.is-dark ? 20px : 2px;
+                                        y: 2px;
+                                        width: 20px;
+                                        height: 20px;
                                         background: #ffffff;
-                                        border-radius: 12px;
+                                        border-radius: 10px;
                                         animate x {
                                             duration: 200ms;
                                             easing: ease-out;
@@ -400,12 +400,35 @@ export component AppWindow inherits Window {
                             
                             // Window position mode selector - section header
                             Rectangle {
-                                height: 32px;
-                                
+                                height: 26px;
+
                                 Text {
-                                    text: "窗口定位模式";
+                                    text: "自动检测输入焦点（优先）";
                                     color: ThemeManager.is-dark ? rgba(255, 255, 255, 0.7) : rgba(0, 0, 0, 0.6);
-                                    font-size: 13px;
+                                    font-size: 12px;
+                                    font-weight: 500;
+                                    horizontal-alignment: left;
+                                    vertical-alignment: center;
+                                }
+                            }
+
+                            Text {
+                                text: "检测到输入焦点时，窗口自动定位到光标旁。";
+                                color: ThemeManager.is-dark ? rgba(255, 255, 255, 0.4) : rgba(0, 0, 0, 0.35);
+                                font-size: 11px;
+                                horizontal-alignment: left;
+                                vertical-alignment: center;
+                            }
+
+                            Rectangle { height: 12px; }
+
+                            Rectangle {
+                                height: 26px;
+
+                                Text {
+                                    text: "无焦点时的回退定位";
+                                    color: ThemeManager.is-dark ? rgba(255, 255, 255, 0.7) : rgba(0, 0, 0, 0.6);
+                                    font-size: 12px;
                                     font-weight: 500;
                                     horizontal-alignment: left;
                                     vertical-alignment: center;
@@ -415,31 +438,31 @@ export component AppWindow inherits Window {
                             // Option: follow mouse (default)
                             GridLayout {
                                 padding: 0px;
-                                spacing: 10px;
+                                spacing: 8px;
                                 Rectangle { width: 0px; }
                                 
                                 // Radio button
                                 Rectangle {
-                                    width: 18px;
-                                    height: 18px;
-                                    border-radius: 9px;
+                                    width: 16px;
+                                    height: 16px;
+                                    border-radius: 8px;
                                     border-width: 2px;
                                     border-color: root.window-position-mode == 1 ? #0078d4 : (ThemeManager.is-dark ? rgba(255, 255, 255, 0.4) : rgba(0, 0, 0, 0.3));
 
                                     Rectangle {
-                                        width: 8px;
-                                        height: 8px;
-                                        border-radius: 4px;
+                                        width: 6px;
+                                        height: 6px;
+                                        border-radius: 3px;
                                         background: root.window-position-mode == 1 ? #0078d4 : transparent;
-                                        x: (parent.width - 8px) / 2;
-                                        y: (parent.height - 8px) / 2;
+                                        x: (parent.width - 6px) / 2;
+                                        y: (parent.height - 6px) / 2;
                                     }
                                 }
                                 
                                 Text {
                                     text: "吸附至鼠标光标位置";
                                     color: root.window-position-mode == 1 ? #0078d4 : (ThemeManager.is-dark ? #ffffff : #1a1a1a);
-                                    font-size: 14px;
+                                    font-size: 13px;
                                     vertical-alignment: center;
                                 }
                                 
@@ -448,14 +471,14 @@ export component AppWindow inherits Window {
                                 Text {
                                     text: "默认";
                                     color: root.window-position-mode == 1 ? #0078d4 : (ThemeManager.is-dark ? rgba(255, 255, 255, 0.4) : rgba(0, 0, 0, 0.35));
-                                    font-size: 12px;
+                                    font-size: 11px;
                                     vertical-alignment: center;
                                 }
                             }
                             
                             TouchArea {
                                 width: 100%;
-                                height: 48px;
+                                height: 36px;
                                 clicked => {
                                     root.window-position-mode = 1;
                                 }
@@ -464,31 +487,31 @@ export component AppWindow inherits Window {
                             // Option: golden ratio centered
                             GridLayout {
                                 padding: 0px;
-                                spacing: 10px;
+                                spacing: 8px;
                                 Rectangle { width: 0px; }
                                 
                                 // Radio button
                                 Rectangle {
-                                    width: 18px;
-                                    height: 18px;
-                                    border-radius: 9px;
+                                    width: 16px;
+                                    height: 16px;
+                                    border-radius: 8px;
                                     border-width: 2px;
                                     border-color: root.window-position-mode == 0 ? #0078d4 : (ThemeManager.is-dark ? rgba(255, 255, 255, 0.4) : rgba(0, 0, 0, 0.3));
 
                                     Rectangle {
-                                        width: 8px;
-                                        height: 8px;
-                                        border-radius: 4px;
+                                        width: 6px;
+                                        height: 6px;
+                                        border-radius: 3px;
                                         background: root.window-position-mode == 0 ? #0078d4 : transparent;
-                                        x: (parent.width - 8px) / 2;
-                                        y: (parent.height - 8px) / 2;
+                                        x: (parent.width - 6px) / 2;
+                                        y: (parent.height - 6px) / 2;
                                     }
                                 }
                                 
                                 Text {
                                     text: "黄金比例居中";
                                     color: root.window-position-mode == 0 ? #0078d4 : (ThemeManager.is-dark ? #ffffff : #1a1a1a);
-                                    font-size: 14px;
+                                    font-size: 13px;
                                     vertical-alignment: center;
                                 }
                                 
@@ -497,7 +520,7 @@ export component AppWindow inherits Window {
                             
                             TouchArea {
                                 width: 100%;
-                                height: 48px;
+                                height: 36px;
                                 clicked => {
                                     root.window-position-mode = 0;
                                 }
@@ -511,12 +534,12 @@ export component AppWindow inherits Window {
                             
                             // Action buttons section
                             Rectangle {
-                                height: 32px;
+                                height: 26px;
                                 
                                 Text {
                                     text: "操作";
                                     color: ThemeManager.is-dark ? rgba(255, 255, 255, 0.7) : rgba(0, 0, 0, 0.6);
-                                    font-size: 13px;
+                                    font-size: 12px;
                                     font-weight: 500;
                                     horizontal-alignment: left;
                                     vertical-alignment: center;
@@ -526,13 +549,13 @@ export component AppWindow inherits Window {
                             // Add mock data button
                             GridLayout {
                                 padding: 0px;
-                                spacing: 12px;
+                                spacing: 8px;
                                 Rectangle { width: 0px; }
                                 
                                 Text {
                                     text: "添加100条测试数据";
                                     color: ThemeManager.is-dark ? #ffffff : #1a1a1a;
-                                    font-size: 14px;
+                                    font-size: 13px;
                                     vertical-alignment: center;
                                 }
                                 
@@ -540,54 +563,13 @@ export component AppWindow inherits Window {
                                 
                                 // Button indicator
                                 Rectangle {
-                                    width: 28px;
-                                    height: 28px;
+                                    width: 24px;
+                                    height: 24px;
                                     background: ThemeManager.is-dark ? rgba(0, 120, 212, 0.3) : rgba(0, 120, 212, 0.12);
-                                    border-radius: 6px;
+                                    border-radius: 4px;
                                     
                                     Text {
                                         text: "+";
-                                        color: #0078d4;
-                                        font-size: 16px;
-                                        font-weight: 600;
-                                        horizontal-alignment: center;
-                                        vertical-alignment: center;
-                                    }
-                                }
-                            }
-                            
-                            TouchArea {
-                                width: 100%;
-                                height: 48px;
-                                clicked => {
-                                    root.add-mock-data();
-                                }
-                            }
-                            
-                            // Test popup button
-                            GridLayout {
-                                padding: 0px;
-                                spacing: 12px;
-                                Rectangle { width: 0px; }
-                                
-                                Text {
-                                    text: "测试弹出窗口";
-                                    color: ThemeManager.is-dark ? #ffffff : #1a1a1a;
-                                    font-size: 14px;
-                                    vertical-alignment: center;
-                                }
-                                
-                                Rectangle { horizontal-stretch: 1; }
-                                
-                                // Button indicator
-                                Rectangle {
-                                    width: 28px;
-                                    height: 28px;
-                                    background: ThemeManager.is-dark ? rgba(0, 120, 212, 0.3) : rgba(0, 120, 212, 0.12);
-                                    border-radius: 6px;
-                                    
-                                    Text {
-                                        text: "↗";
                                         color: #0078d4;
                                         font-size: 14px;
                                         font-weight: 600;
@@ -599,14 +581,55 @@ export component AppWindow inherits Window {
                             
                             TouchArea {
                                 width: 100%;
-                                height: 48px;
+                                height: 40px;
+                                clicked => {
+                                    root.add-mock-data();
+                                }
+                            }
+                            
+                            // Test popup button
+                            GridLayout {
+                                padding: 0px;
+                                spacing: 8px;
+                                Rectangle { width: 0px; }
+                                
+                                Text {
+                                    text: "测试弹出窗口";
+                                    color: ThemeManager.is-dark ? #ffffff : #1a1a1a;
+                                    font-size: 13px;
+                                    vertical-alignment: center;
+                                }
+                                
+                                Rectangle { horizontal-stretch: 1; }
+                                
+                                // Button indicator
+                                Rectangle {
+                                    width: 24px;
+                                    height: 24px;
+                                    background: ThemeManager.is-dark ? rgba(0, 120, 212, 0.3) : rgba(0, 120, 212, 0.12);
+                                    border-radius: 4px;
+                                    
+                                    Text {
+                                        text: "↗";
+                                        color: #0078d4;
+                                        font-size: 12px;
+                                        font-weight: 600;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                            }
+                            
+                            TouchArea {
+                                width: 100%;
+                                height: 40px;
                                 clicked => {
                                     root.open-popup-window("测试窗口", "这是一个独立弹出窗口。它完全独立于主窗口，可以自由移动和调整大小。");
                                 }
                             }
                             
                             // Spacer at end
-                            Rectangle { height: 20px; }
+                            Rectangle { height: 10px; }
                         }
                     }
                 }

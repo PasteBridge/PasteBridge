@@ -1,18 +1,18 @@
 pastebridge.code-workspace
 /test
-
 /target
 
-.refact/buddy/memory_ops.jsonl
-.refact/buddy/state.json
-.refact/buddy/runtime_queue.jsonl
+# IDE directories
+.idea/
+.vscode/
+.trae/
+.refact/
 
+# Logs & temp files
 /1.txt
-/stderr_test.log
-/stderr_test2.log
+*.log
 
-# Old structure (migrated to crates/)
-/src/
-/build.rs
-/ui/
-/msvc_stubs.cpp
+# Binary/vendored libs
+*.lib
+*.exp
+*.pdb

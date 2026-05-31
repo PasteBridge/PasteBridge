@@ -1,29 +1,9 @@
-[package]
-name = "paste_bridge"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-paste_bridge_core = { path = "crates/core" }
-slint = { path = "slint/api/rs/slint", default-features = false, features = ["std", "backend-winit", "renderer-skia", "compat-1-2", "raw-window-handle-06", "unstable-winit-030"] }
-global-hotkey = "0.6"
-clipboard-win = "5.4"
-arboard = "3.4"
-rusqlite = { version = "0.32", features = ["bundled"] }
-sha2 = "0.10"
-hex = "0.4"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-tiny_http = "0.12"
-chrono = "0.4"
-windows = { version = "0.58", features = ["Win32_UI_WindowsAndMessaging", "Win32_Foundation", "Win32_System_LibraryLoader", "Win32_Graphics_Dwm", "Win32_UI_Controls", "Win32_Graphics_Gdi", "Win32_System_Threading", "Win32_System_ProcessStatus", "Win32_System_Time"] }
-raw-window-handle = "0.6.2"
-window-vibrancy = "0.7.1"
-tray-icon = "0.14"
-
-[build-dependencies]
-slint-build = { path = "slint/api/rs/build" }
-cc = "1.0"
+[workspace]
+resolver = "2"
+members = [
+    "crates/core",
+    "crates/desktop",
+]
 
 [profile.release]
 opt-level = "z"
