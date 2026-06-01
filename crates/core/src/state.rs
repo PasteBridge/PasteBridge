@@ -74,6 +74,16 @@ impl AppState {
         db.insert_mock_data(count).unwrap_or(0)
     }
 
+    pub fn get_config(&self, key: &str) -> Option<String> {
+        let db = self.db.lock().unwrap();
+        db.get_config(key).ok().flatten()
+    }
+
+    pub fn set_config(&self, key: &str, value: &str) -> bool {
+        let db = self.db.lock().unwrap();
+        db.set_config(key, value).is_ok()
+    }
+
     pub fn set_window_visible(&self, visible: bool) {
         *self.is_window_visible.lock().unwrap() = visible;
     }

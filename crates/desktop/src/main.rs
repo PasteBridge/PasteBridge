@@ -64,7 +64,7 @@ fn get_focused_caret_screen_pos() -> Option<CaretRect> {
                 let mut top = 0i32;
                 let mut width = 0i32;
                 let mut height = 0i32;
-                let var_child = VARIANT::default();
+                let var_child = VARIANT::from(0i32);
                 if acc.accLocation(&mut left, &mut top, &mut width, &mut height, &var_child).is_ok() {
                     if width > 0 || height > 0 {
                         return Some(CaretRect {
@@ -177,24 +177,24 @@ mod window_util {
 fn calc_window_position(app: &AppWindow, win_w: i32, win_h: i32) -> slint::PhysicalPosition {
     let screen_w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
     let screen_h = unsafe { GetSystemMetrics(SM_CYSCREEN) };
-    let gap: i32 = 10;
+    let y_offset: i32 = 14;
 
     let caret = get_cached_focus_pos()
         .or_else(|| get_focused_caret_screen_pos());
 
     if let Some(caret) = caret {
-        let mut x = caret.right + gap;
-        let mut y = caret.bottom + gap;
+        let mut x = caret.left;
+        let mut y = caret.bottom + y_offset;
 
         if x + win_w > screen_w {
-            x = caret.left - win_w;
+            x = caret.right - win_w;
         }
         if x < 0 {
             x = 0;
         }
 
         if y + win_h > screen_h {
-            y = caret.top - win_h;
+            y = caret.top - win_h - y_offset;
         }
         if y < 0 {
             y = 0;
@@ -250,6 +250,34 @@ fn main() {
 
     let app = AppWindow::new().unwrap();
     let app_weak = app.as_weak();
+
+    // 从数据库加载持久化设置
+    {
+        // 加载主题设置
+        if let Some(theme) = state.get_config("theme") {
+            match theme.as_str() {
+                "dark" => app.set_is_dark_mode(true),
+                "light" => app.set_is_dark_mode(false),
+                _ => {}
+            }
+            eprintln!("[config] Loaded theme: {}", theme);
+        }
+
+        // 加载窗口定位模式
+        if let Some(mode) = state.get_config("window-position-mode") {
+            if let Ok(mode_val) = mode.parse::<i32>() {
+                app.set_window_position_mode(mode_val);
+                eprintln!("[config] Loaded window-position-mode: {}", mode_val);
+            }
+        }
+    }
+
+    // 持久化设置 - 当 UI 中设置变更时保存到数据库
+    let state_for_save = state.clone();
+    app.on_save_setting(move |key: slint::SharedString, value: slint::SharedString| {
+        let saved = state_for_save.set_config(&key, &value);
+        eprintln!("[config] Save setting: {} = {} (saved: {})", key, value, saved);
+    });
 
     app.window().set_size(slint::LogicalSize::new(WINDOW_WIDTH, WINDOW_HEIGHT));
     let pos = calc_window_position(&app, WINDOW_WIDTH as i32, WINDOW_HEIGHT as i32);
@@ -313,7 +341,7 @@ fn main() {
                 *entries_lock = entries.clone();
             }
 
-            let items: Vec<slint::SharedString> = entries.iter().map(|e| truncate_for_display(&e.text, 500)).collect();
+            let items: Vec<slint::SharedString> = entries.iter().map(|e| truncate_for_display(&e.text, 2000)).collect();
             let model = std::rc::Rc::new(slint::VecModel::from(items));
             w.set_clipboard_history(model.into());
         }
@@ -360,7 +388,7 @@ fn main() {
                     .collect();
 
                 let items: Vec<slint::SharedString> = entries.iter()
-                    .map(|e| truncate_for_display(&e.text, 500))
+                    .map(|e| truncate_for_display(&e.text, 2000))
                     .collect();
 
                 {
@@ -715,7 +743,7 @@ fn main() {
                     .collect();
 
                 let items: Vec<slint::SharedString> = entries.iter()
-                    .map(|e| truncate_for_display(&e.text, 500))
+                    .map(|e| truncate_for_display(&e.text, 2000))
                     .collect();
 
                 {
