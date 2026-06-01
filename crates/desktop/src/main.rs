@@ -20,18 +20,68 @@ use std::sync::atomic::Ordering;
 
 use global_hotkey::{GlobalHotKeyManager, hotkey::{HotKey, Modifiers, Code}};
 use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
+use windows::Win32::UI::WindowsAndMessaging::{GetWindowLongPtrW, SetWindowLongPtrW, GWL_EXSTYLE, WS_EX_TOOLWINDOW};
+
+#[derive(Debug, Clone, Copy)]
+struct CaretRect {
+    left: i32,
+    top: i32,
+    right: i32,
+    bottom: i32,
+}
 
 #[cfg(target_os = "windows")]
-fn get_focused_caret_screen_pos() -> Option<(i32, i32)> {
+fn get_focused_caret_screen_pos() -> Option<CaretRect> {
     unsafe {
         use windows::Win32::UI::WindowsAndMessaging::{
             GetForegroundWindow, GetGUIThreadInfo, GetWindowThreadProcessId,
-            GetWindowRect, GUITHREADINFO,
+            GUITHREADINFO, OBJID_CARET,
         };
+        use windows::Win32::Graphics::Gdi::ClientToScreen;
+        use windows::Win32::UI::Accessibility::{AccessibleObjectFromWindow, IAccessible};
+        use windows_core::Interface;
+        use windows_core::VARIANT;
 
         let fg_hwnd = GetForegroundWindow();
         if fg_hwnd.is_invalid() {
             return None;
+        }
+
+        if fg_hwnd.0 as isize == crate::window_effects::APP_HWND.load(std::sync::atomic::Ordering::Relaxed) {
+            return None;
+        }
+
+        let get_caret_msaa = |hwnd| -> Option<CaretRect> {
+            let mut acc: *mut core::ffi::c_void = std::ptr::null_mut();
+            if AccessibleObjectFromWindow(
+                hwnd,
+                OBJID_CARET.0 as u32,
+                &IAccessible::IID,
+                &mut acc,
+            ).is_ok() && !acc.is_null() {
+                let acc = IAccessible::from_raw(acc);
+                let mut left = 0i32;
+                let mut top = 0i32;
+                let mut width = 0i32;
+                let mut height = 0i32;
+                let var_child = VARIANT::default();
+                if acc.accLocation(&mut left, &mut top, &mut width, &mut height, &var_child).is_ok() {
+                    if width > 0 || height > 0 {
+                        return Some(CaretRect {
+                            left,
+                            top,
+                            right: left + width,
+                            bottom: top + height,
+                        });
+                    }
+                }
+            }
+            None
+        };
+
+        let caret_from_msaa = get_caret_msaa(fg_hwnd);
+        if caret_from_msaa.is_some() {
+            return caret_from_msaa;
         }
 
         let thread_id = GetWindowThreadProcessId(fg_hwnd, None);
@@ -41,41 +91,38 @@ fn get_focused_caret_screen_pos() -> Option<(i32, i32)> {
         };
 
         if GetGUIThreadInfo(thread_id, &mut info).is_ok() {
-            // Strategy 1: system caret (Win32 Edit/TextBox controls)
-            // rcCaret is already in screen coordinates!
             if !info.hwndCaret.is_invalid() {
                 let caret_w = info.rcCaret.right - info.rcCaret.left;
                 let caret_h = info.rcCaret.bottom - info.rcCaret.top;
                 if caret_w >= 0 && caret_h >= 0 {
-                    return Some((info.rcCaret.left, info.rcCaret.top));
-                }
-            }
-
-            // Strategy 2: focused control window rect (covers modern apps)
-            if !info.hwndFocus.is_invalid() {
-                let mut focus_rect = std::mem::zeroed();
-                if GetWindowRect(info.hwndFocus, &mut focus_rect).is_ok() {
-                    let focus_w = focus_rect.right - focus_rect.left;
-                    let focus_h = focus_rect.bottom - focus_rect.top;
-                    if focus_w > 0 && focus_h > 0 {
-                        let screen_x = focus_rect.left + 10;
-                        let screen_y = focus_rect.top + focus_h / 2;
-                        return Some((screen_x, screen_y));
+                    use windows::Win32::Foundation::POINT;
+                    let mut pt_tl = POINT { x: info.rcCaret.left, y: info.rcCaret.top };
+                    let mut pt_br = POINT { x: info.rcCaret.right, y: info.rcCaret.bottom };
+                    if ClientToScreen(info.hwndCaret, &mut pt_tl).as_bool()
+                        && ClientToScreen(info.hwndCaret, &mut pt_br).as_bool()
+                    {
+                        return Some(CaretRect {
+                            left: pt_tl.x,
+                            top: pt_tl.y,
+                            right: pt_br.x,
+                            bottom: pt_br.y,
+                        });
                     }
                 }
             }
         }
+
         None
     }
 }
 
 #[cfg(not(target_os = "windows"))]
-fn get_focused_caret_screen_pos() -> Option<(i32, i32)> {
+fn get_focused_caret_screen_pos() -> Option<CaretRect> {
     None
 }
 
 #[cfg(target_os = "windows")]
-static LAST_FOCUS_POS: std::sync::Mutex<Option<(i32, i32)>> = std::sync::Mutex::new(None);
+static LAST_FOCUS_POS: std::sync::Mutex<Option<CaretRect>> = std::sync::Mutex::new(None);
 
 #[cfg(target_os = "windows")]
 fn start_focus_tracker() {
@@ -98,7 +145,7 @@ fn start_focus_tracker() {
 #[cfg(not(target_os = "windows"))]
 fn start_focus_tracker() {}
 
-fn get_cached_focus_pos() -> Option<(i32, i32)> {
+fn get_cached_focus_pos() -> Option<CaretRect> {
     #[cfg(target_os = "windows")]
     {
         if let Ok(guard) = LAST_FOCUS_POS.lock() {
@@ -128,20 +175,35 @@ mod window_util {
 }
 
 fn calc_window_position(app: &AppWindow, win_w: i32, win_h: i32) -> slint::PhysicalPosition {
-    // Strategy 1: use cached input focus position from continuous tracker
-    if let Some((caret_x, caret_y)) = get_cached_focus_pos() {
-        return slint::PhysicalPosition::new(caret_x + 10, caret_y);
-    }
-
-    // Strategy 2: fresh detection of input focus
-    if let Some((caret_x, caret_y)) = get_focused_caret_screen_pos() {
-        return slint::PhysicalPosition::new(caret_x + 10, caret_y);
-    }
-
-    // Strategy 3: no external input focus, use user-selected mode
-    let mode = app.get_window_position_mode();
     let screen_w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
     let screen_h = unsafe { GetSystemMetrics(SM_CYSCREEN) };
+    let gap: i32 = 10;
+
+    let caret = get_cached_focus_pos()
+        .or_else(|| get_focused_caret_screen_pos());
+
+    if let Some(caret) = caret {
+        let mut x = caret.right + gap;
+        let mut y = caret.bottom + gap;
+
+        if x + win_w > screen_w {
+            x = caret.left - win_w;
+        }
+        if x < 0 {
+            x = 0;
+        }
+
+        if y + win_h > screen_h {
+            y = caret.top - win_h;
+        }
+        if y < 0 {
+            y = 0;
+        }
+
+        return slint::PhysicalPosition::new(x, y);
+    }
+
+    let mode = app.get_window_position_mode();
 
     match mode {
         0 => {
@@ -172,6 +234,14 @@ fn main() {
     let initial_memory = memory_monitor.update();
     eprintln!("[memory] Initial memory: {}", paste_bridge_core::memory::MemoryMonitor::format_memory(initial_memory));
 
+    // 启动时立即让 OS 回收空闲页面，减少内存占用
+    if let Some(freed) = memory_monitor.trim_working_set() {
+        eprintln!("[memory] Startup trim freed {}",
+            paste_bridge_core::memory::MemoryMonitor::format_memory(freed));
+    } else {
+        eprintln!("[memory] Startup trim: not supported on this platform");
+    }
+
     let app_data_dir = std::env::var("LOCALAPPDATA")
         .map(|p| std::path::PathBuf::from(p).join("PasteBridge"))
         .unwrap_or_else(|_| std::path::PathBuf::from("."));
@@ -201,6 +271,25 @@ fn main() {
         text: slint::SharedString,
         id: i64,
     }
+
+    fn truncate_for_display(text: &str, max_bytes: usize) -> slint::SharedString {
+        if text.len() <= max_bytes {
+            return text.into();
+        }
+
+        let mut cut_point = max_bytes;
+        while cut_point > 0 && !text.is_char_boundary(cut_point) {
+            cut_point -= 1;
+        }
+
+        let truncated = &text[..cut_point];
+
+        if let Some(last_nl) = truncated.rfind('\n') {
+            format!("{}\n...", &truncated[..last_nl]).into()
+        } else {
+            format!("{}...", truncated).into()
+        }
+    }
     let clipboard_entries: Arc<std::sync::Mutex<Vec<ClipboardEntry>>> = Arc::new(std::sync::Mutex::new(Vec::new()));
     let clipboard_entries_clone = clipboard_entries.clone();
 
@@ -224,7 +313,7 @@ fn main() {
                 *entries_lock = entries.clone();
             }
 
-            let items: Vec<slint::SharedString> = entries.iter().map(|e| e.text.clone()).collect();
+            let items: Vec<slint::SharedString> = entries.iter().map(|e| truncate_for_display(&e.text, 500)).collect();
             let model = std::rc::Rc::new(slint::VecModel::from(items));
             w.set_clipboard_history(model.into());
         }
@@ -235,6 +324,17 @@ fn main() {
     let state_for_ui = state.clone();
     let entries_for_update = clipboard_entries_clone.clone();
     let memory_monitor_clone = std::sync::Arc::new(memory_monitor);
+    let mem_for_periodic = memory_monitor_clone.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(120));
+        loop {
+            if let Some(freed) = mem_for_periodic.trim_working_set() {
+                eprintln!("[memory] Periodic trim freed {}",
+                    paste_bridge_core::memory::MemoryMonitor::format_memory(freed));
+            }
+            std::thread::sleep(std::time::Duration::from_secs(60));
+        }
+    });
     let mem_for_update = memory_monitor_clone.clone();
     clipboard::start_clipboard_monitor(state_for_clipboard, move || {
         let weak = app_weak_clone.clone();
@@ -260,7 +360,7 @@ fn main() {
                     .collect();
 
                 let items: Vec<slint::SharedString> = entries.iter()
-                    .map(|e| e.text.clone())
+                    .map(|e| truncate_for_display(&e.text, 500))
                     .collect();
 
                 {
@@ -615,7 +715,7 @@ fn main() {
                     .collect();
 
                 let items: Vec<slint::SharedString> = entries.iter()
-                    .map(|e| e.text.clone())
+                    .map(|e| truncate_for_display(&e.text, 500))
                     .collect();
 
                 {
@@ -687,6 +787,33 @@ fn main() {
     // 创建守护窗口来运行 Slint 事件循环
     // 这样即使主窗口隐藏，程序也能继续运行
     let dummy_window = DummyWindow::new().unwrap();
+    
+    // 隐藏守护窗口的任务栏图标
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::Foundation::HWND;
+        use raw_window_handle::RawWindowHandle;
+        use raw_window_handle::HasWindowHandle;
+        
+        let window = dummy_window.as_weak().unwrap();
+        let slint_window = window.window();
+        let slint_handle = slint_window.window_handle();
+        match slint_handle.window_handle() {
+            Ok(raw_win) => {
+                let raw = raw_win.as_raw();
+                if let RawWindowHandle::Win32(win32_handle) = raw {
+                    let hwnd = HWND(win32_handle.hwnd.get() as *mut std::ffi::c_void);
+                    unsafe {
+                        let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
+                        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, (ex_style | WS_EX_TOOLWINDOW.0 as u32) as isize);
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("[dummy] Could not get window handle (window not realized yet): {:?}", e);
+            }
+        }
+    }
     
     // 运行守护窗口的事件循环
     // 注意：Slint 只能运行一个窗口的事件循环
