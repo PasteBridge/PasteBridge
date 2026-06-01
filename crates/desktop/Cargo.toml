@@ -23,3 +23,4 @@ tray-icon = "0.14"
 
 [build-dependencies]
 slint-build = "1.14"
+cc = "1"

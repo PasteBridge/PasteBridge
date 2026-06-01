@@ -3806,6 +3806,7 @@ name = "paste_bridge_desktop"
 version = "0.1.0"
 dependencies = [
  "arboard",
+ "cc",
  "chrono",
  "clipboard-win",
  "global-hotkey",

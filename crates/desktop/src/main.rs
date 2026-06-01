@@ -42,12 +42,12 @@ fn get_focused_caret_screen_pos() -> Option<(i32, i32)> {
 
         if GetGUIThreadInfo(thread_id, &mut info).is_ok() {
             // Strategy 1: system caret (Win32 Edit/TextBox controls)
+            // rcCaret is already in screen coordinates!
             if !info.hwndCaret.is_invalid() {
-                let mut window_rect = std::mem::zeroed();
-                if GetWindowRect(info.hwndCaret, &mut window_rect).is_ok() {
-                    let screen_x = window_rect.left + info.rcCaret.left;
-                    let screen_y = window_rect.top + info.rcCaret.top;
-                    return Some((screen_x, screen_y));
+                let caret_w = info.rcCaret.right - info.rcCaret.left;
+                let caret_h = info.rcCaret.bottom - info.rcCaret.top;
+                if caret_w >= 0 && caret_h >= 0 {
+                    return Some((info.rcCaret.left, info.rcCaret.top));
                 }
             }
 
