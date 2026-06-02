@@ -39,9 +39,9 @@ impl AppState {
         db.insert_image(data, mime_type, width, height).ok()
     }
 
-    pub fn get_history(&self) -> Vec<ClipboardItem> {
+    pub fn get_history(&self, ascending: bool) -> Vec<ClipboardItem> {
         let db = self.db.lock().unwrap();
-        db.get_history(self.max_history_size).unwrap_or_default()
+        db.get_history(self.max_history_size, ascending).unwrap_or_default()
     }
 
     pub fn get_item(&self, id: i64) -> Option<ClipboardItem> {

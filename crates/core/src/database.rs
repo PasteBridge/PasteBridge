@@ -151,15 +151,18 @@ impl Database {
         Ok((self.conn.last_insert_rowid(), content_path))
     }
 
-    pub fn get_history(&self, limit: usize) -> SqliteResult<Vec<ClipboardItem>> {
-        let mut stmt = self.conn.prepare(
+    pub fn get_history(&self, limit: usize, ascending: bool) -> SqliteResult<Vec<ClipboardItem>> {
+        let order = if ascending { "ASC" } else { "DESC" };
+        let sql = format!(
             r#"SELECT id, content_type, content_text, content_path, content_hash,
                  mime_type, file_size, width, height, source_ip, created_at, is_favorite
              FROM clipboard_items
              WHERE is_deleted = 0
-             ORDER BY created_at DESC
-             LIMIT ?1"#
-         )?;
+             ORDER BY created_at {}
+             LIMIT ?1"#,
+            order
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
 
         let items = stmt.query_map(params![limit as i64], |row| {
             let content_type_str: String = row.get(1)?;

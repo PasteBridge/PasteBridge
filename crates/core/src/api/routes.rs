@@ -3,7 +3,7 @@ use crate::state::AppState;
 use crate::clipboard as core_clipboard;
 
 pub fn handle_get_history(state: &Arc<AppState>) -> Vec<u8> {
-    let history = state.get_history();
+    let history = state.get_history(false);
     serde_json::to_vec(&history).unwrap_or_default()
 }
 

@@ -113,6 +113,7 @@ export component AppWindow inherits Window {
     callback toggle-settings();
     callback toggle-favorite();
     callback toggle-share();
+    callback toggle-sort-order();
     callback show-hover-tooltip(text: string);
     callback show-hover-tooltip-index(index: int);
     callback hide-hover-tooltip();
@@ -148,6 +149,8 @@ export component AppWindow inherits Window {
     in-out property <int> window-position-mode: 1;
     // Two-way binding with ThemeManager for Rust access
     in-out property <bool> is-dark-mode <=> ThemeManager.is-dark;
+    // Sort direction for clipboard history: false = newest first (default), true = oldest first
+    in-out property <bool> sort-ascending: false;
     
     // Scroll indicator properties
     in-out property <bool> is-scrolling: false;
@@ -1336,17 +1339,17 @@ export component AppWindow inherits Window {
                         }
                     }
 
-                    // Minimize button
+                    // Sort-by-time button (toggles newest-first / oldest-first)
                     Rectangle {
                         width: 24px;
                         height: 24px;
                         background: transparent;
 
-                        Text {
-                            text: "—";
-                            color: ThemeManager.is-dark ? #ffffff : #1a1a1a;
-                            font-size: 20px;
-                            font-weight: 700;
+                        Image {
+                            source: root.sort-ascending ? @image-url("assets/clock_arrow_up.svg") : @image-url("assets/clock_arrow_down.svg");
+                            width: 20px;
+                            height: 20px;
+                            colorize: ThemeManager.is-dark ? #ffffff : #1a1a1a;
                             horizontal-alignment: center;
                             vertical-alignment: center;
                         }
@@ -1355,7 +1358,7 @@ export component AppWindow inherits Window {
                             width: 100%;
                             height: 100%;
                             clicked => {
-                                root.minimize-window();
+                                root.toggle-sort-order();
                             }
                         }
                     }
