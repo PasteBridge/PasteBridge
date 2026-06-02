@@ -26,6 +26,7 @@ pub fn register_all(app: &AppWindow, ctx: &CallbackContext) {
     register_toggle_share(app, ctx);
     register_toggle_sort_order(app, ctx);
     register_add_mock_data(app, ctx);
+    register_restore_focus_setting(app);
 }
 
 fn register_save_setting(app: &AppWindow, ctx: &CallbackContext) {
@@ -265,5 +266,12 @@ fn register_add_mock_data(app: &AppWindow, ctx: &CallbackContext) {
         let _ = slint::invoke_from_event_loop(move || {
             crate::sync::sync_history_to_ui(&weak, &state, &entries, true);
         });
+    });
+}
+
+fn register_restore_focus_setting(app: &AppWindow) {
+    app.on_restore_focus_enabled_change(move |enabled| {
+        crate::focus::set_restore_focus_enabled(enabled);
+        eprintln!("[focus] Restore focus setting changed to: {} (from UI)", enabled);
     });
 }

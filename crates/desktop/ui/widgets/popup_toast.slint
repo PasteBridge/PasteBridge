@@ -1,0 +1,21 @@
+import { ThemeManager } from "../themes.slint";
+
+export component PopupToast inherits PopupWindow {
+    x: 0px;
+    y: -48px;
+    width: 80px;
+    height: 32px;
+
+    Rectangle {
+        background: ThemeManager.is-dark ? #1a1a1a : #ffffff;
+        border-radius: 6px;
+
+        Text {
+            text: "Copied";
+            color: ThemeManager.is-dark ? #ffffff : #1a1a1a;
+            font-size: 13px;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+}

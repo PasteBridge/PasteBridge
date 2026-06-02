@@ -1,0 +1,251 @@
+import { ThemeManager } from "../themes.slint";
+
+export component Toolbar {
+    in property <bool> settings-visible;
+    in property <bool> sort-ascending;
+    callback start-drag();
+    callback toggle-settings();
+    callback clear-history();
+    callback toggle-sort-order();
+    callback toggle-favorite();
+    callback quit-app();
+    callback toggle-share();
+    callback show-context-menu();
+
+    width: 44px;
+
+    Rectangle {
+        background: ThemeManager.is-dark ? rgba(0, 0, 0, 0.25) : rgba(255, 255, 255, 0.948);
+
+        TouchArea {
+            width: 100%;
+            height: 100%;
+            pointer-event(ev) => {
+                if (ev.button == PointerEventButton.left && ev.kind == PointerEventKind.down) {
+                    root.start-drag();
+                }
+                if (ev.button == PointerEventButton.right && ev.kind == PointerEventKind.down) {
+                    root.show-context-menu();
+                }
+            }
+
+            VerticalLayout {
+                padding-left: 10.5px;
+                padding-right: 10.5px;
+                padding-top: 13px;
+                padding-bottom: 12px;
+                spacing: 12px;
+
+                // Hamburger-to-X toggle button
+                Rectangle {
+                    width: 26px;
+                    height: 26px;
+                    background: transparent;
+
+                    line1 := Rectangle {
+                        x: 3px;
+                        y: 8px;
+                        width: 20px;
+                        height: 2px;
+                        background: ThemeManager.is-dark ? #ffffff : #1a1a1a;
+                        opacity: 1.0;
+                        transform-origin: { x: 10px, y: 5px };
+                        transform-rotation: 0deg;
+                        states [
+                            state-open when root.settings-visible: {
+                                transform-rotation: 30deg;
+                                out {
+                                    animate transform-rotation {
+                                        duration: 300ms;
+                                        easing: ease-out-quad;
+                                    }
+                                }
+                                in {
+                                    animate transform-rotation {
+                                        duration: 300ms;
+                                        easing: ease-out-quad;
+                                    }
+                                }
+                            }
+                        ]
+                    }
+
+                    line2 := Rectangle {
+                        x: 3px;
+                        y: 16px;
+                        width: 20px;
+                        height: 2px;
+                        background: ThemeManager.is-dark ? #ffffff : #1a1a1a;
+                        opacity: 1.0;
+                        transform-origin: { x: 10px, y: -3px };
+                        transform-rotation: 0deg;
+                        states [
+                            state-open when root.settings-visible: {
+                                transform-rotation: -30deg;
+                                out {
+                                    animate transform-rotation {
+                                        duration: 300ms;
+                                        easing: ease-out-quad;
+                                    }
+                                }
+                                in {
+                                    animate transform-rotation {
+                                        duration: 300ms;
+                                        easing: ease-out-quad;
+                                    }
+                                }
+                            }
+                        ]
+                    }
+
+                    property <bool> _was-moved: false;
+                    TouchArea {
+                        width: 100%;
+                        height: 100%;
+                        moved => {
+                            _was-moved = true;
+                        }
+                        pointer-event(ev) => {
+                            if (ev.button == PointerEventButton.left && ev.kind == PointerEventKind.down) {
+                                root.start-drag();
+                                _was-moved = false;
+                            }
+                        }
+                        clicked => {
+                            if (!_was-moved) {
+                                root.toggle-settings();
+                            }
+                            _was-moved = false;
+                        }
+                    }
+                }
+
+                // Horizontal divider
+                Rectangle {
+                    height: 1px;
+                    background: ThemeManager.is-dark ? rgba(255, 255, 255, 0.1) : rgba(0, 0, 0, 0.1);
+                }
+
+                // 工具按钮
+                VerticalLayout {
+                    spacing: 16px;
+
+                    // Clear button
+                    Rectangle {
+                        width: 24px;
+                        height: 24px;
+                        background: transparent;
+
+                        Image {
+                            source: @image-url("../assets/delete.svg");
+                            width: 20px;
+                            height: 20px;
+                            colorize: ThemeManager.is-dark ? #ffffff : #1a1a1a;
+                        }
+
+                        TouchArea {
+                            width: 100%;
+                            height: 100%;
+                            clicked => {
+                                root.clear-history();
+                            }
+                        }
+                    }
+
+                    // Sort button
+                    Rectangle {
+                        width: 24px;
+                        height: 24px;
+                        background: transparent;
+
+                        Image {
+                            source: root.sort-ascending ? @image-url("../assets/clock_arrow_up.svg") : @image-url("../assets/clock_arrow_down.svg");
+                            width: 20px;
+                            height: 20px;
+                            colorize: ThemeManager.is-dark ? #ffffff : #1a1a1a;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        TouchArea {
+                            width: 100%;
+                            height: 100%;
+                            clicked => {
+                                root.toggle-sort-order();
+                            }
+                        }
+                    }
+
+                    // Favorite button
+                    Rectangle {
+                        width: 24px;
+                        height: 24px;
+                        background: transparent;
+
+                        Image {
+                            source: @image-url("../assets/favorite.svg");
+                            width: 20px;
+                            height: 20px;
+                            colorize: ThemeManager.is-dark ? #ffffff : #1a1a1a;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        TouchArea {
+                            width: 100%;
+                            height: 100%;
+                            clicked => {
+                                root.toggle-favorite();
+                            }
+                        }
+                    }
+
+                    // Quit button
+                    Rectangle {
+                        width: 24px;
+                        height: 24px;
+                        background: transparent;
+
+                        Text {
+                            text: "×";
+                            color: ThemeManager.is-dark ? #ffffff : #1a1a1a;
+                            font-size: 20px;
+                            font-weight: 500;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        TouchArea {
+                            width: 100%;
+                            height: 100%;
+                            clicked => {
+                                root.quit-app();
+                            }
+                        }
+                    }
+                }
+
+                // Spacer to push share button to bottom
+                Rectangle {
+                    vertical-stretch: 1;
+                }
+
+                // Share button
+                Image {
+                    source: @image-url("../assets/share.svg");
+                    width: 24px;
+                    height: 24px;
+                    colorize: ThemeManager.is-dark ? #ffffff : #1a1a1a;
+
+                    TouchArea {
+                        width: 100%;
+                        height: 100%;
+                        clicked => {
+                            root.toggle-share();
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

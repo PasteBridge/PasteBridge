@@ -16,3 +16,4 @@ pastebridge.code-workspace
 *.lib
 *.exp
 *.pdb
+crates/mobile/gradle/wrapper/gradle-wrapper.jar

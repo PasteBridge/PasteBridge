@@ -78,6 +78,22 @@ fn main() {
                 eprintln!("[config] Loaded window-position-mode: {}", mode_val);
             }
         }
+
+        // 加载焦点恢复设置
+        if let Some(restore_focus) = state.get_config("restore-focus") {
+            match restore_focus.as_str() {
+                "true" | "1" => {
+                    focus::set_restore_focus_enabled(true);
+                    app.set_restore_focus_enabled(true);
+                }
+                "false" | "0" => {
+                    focus::set_restore_focus_enabled(false);
+                    app.set_restore_focus_enabled(false);
+                }
+                _ => {}
+            }
+            eprintln!("[config] Loaded restore-focus: {}", restore_focus);
+        }
     }
 
     app.window().set_size(slint::LogicalSize::new(WINDOW_WIDTH, WINDOW_HEIGHT));
@@ -211,6 +227,10 @@ fn main() {
                                 let _ = windows::Win32::UI::WindowsAndMessaging::SetForegroundWindow(hwnd);
                             }
                             animation::fade_window_in();
+                            std::thread::spawn(move || {
+                                std::thread::sleep(std::time::Duration::from_millis(100));
+                                focus::restore_previous_focus();
+                            });
                         }
                     }
                 }

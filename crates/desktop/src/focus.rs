@@ -101,6 +101,31 @@ pub fn get_focused_caret_screen_pos() -> Option<CaretRect> {
 static LAST_FOCUS_POS: std::sync::Mutex<Option<CaretRect>> = std::sync::Mutex::new(None);
 
 #[cfg(target_os = "windows")]
+static LAST_FOCUS_HWND: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
+
+#[cfg(target_os = "windows")]
+static RESTORE_FOCUS_ENABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+#[cfg(target_os = "windows")]
+pub fn set_restore_focus_enabled(enabled: bool) {
+    RESTORE_FOCUS_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+    eprintln!("[focus] Restore focus setting changed to: {}", enabled);
+}
+
+#[cfg(target_os = "windows")]
+pub fn get_restore_focus_enabled() -> bool {
+    RESTORE_FOCUS_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn set_restore_focus_enabled(_enabled: bool) {}
+
+#[cfg(not(target_os = "windows"))]
+pub fn get_restore_focus_enabled() -> bool {
+    false
+}
+
+#[cfg(target_os = "windows")]
 pub fn start_focus_tracker() {
     std::thread::spawn(|| {
         loop {
@@ -113,6 +138,18 @@ pub fn start_focus_tracker() {
                     *guard = None;
                 }
             }
+
+            unsafe {
+                use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
+                let fg_hwnd = GetForegroundWindow();
+                if !fg_hwnd.is_invalid() {
+                    let app_hwnd = crate::window_effects::APP_HWND.load(std::sync::atomic::Ordering::Relaxed);
+                    if fg_hwnd.0 as isize != app_hwnd && app_hwnd != 0 {
+                        LAST_FOCUS_HWND.store(fg_hwnd.0 as isize, std::sync::atomic::Ordering::Relaxed);
+                    }
+                }
+            }
+
             std::thread::sleep(std::time::Duration::from_millis(250));
         }
     });
@@ -130,3 +167,27 @@ pub fn get_cached_focus_pos() -> Option<CaretRect> {
     }
     None
 }
+
+#[cfg(target_os = "windows")]
+pub fn restore_previous_focus() {
+    if !RESTORE_FOCUS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
+        return;
+    }
+    
+    let previous_hwnd = LAST_FOCUS_HWND.load(std::sync::atomic::Ordering::Relaxed);
+    if previous_hwnd != 0 {
+        unsafe {
+            use windows::Win32::UI::WindowsAndMessaging::{SetForegroundWindow, GetForegroundWindow};
+            use windows::Win32::Foundation::HWND;
+            let hwnd = HWND(previous_hwnd as *mut std::ffi::c_void);
+            let current_hwnd = GetForegroundWindow();
+            if current_hwnd.0 as isize != previous_hwnd {
+                let _ = SetForegroundWindow(hwnd);
+                eprintln!("[focus] Restored focus to previous window: {}", previous_hwnd);
+            }
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn restore_previous_focus() {}

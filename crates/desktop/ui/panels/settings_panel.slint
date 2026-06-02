@@ -1,0 +1,274 @@
+import { ThemeManager } from "../themes.slint";
+import { ScrollView } from "std-widgets.slint";
+import { ToggleSwitch } from "../widgets/toggle_switch.slint";
+import { RadioOption } from "../widgets/radio_option.slint";
+
+export component SettingsPanel {
+    in property <bool> panel-visible;
+    in property <bool> closing;
+    in-out property <int> window-position-mode;
+    in-out property <bool> restore-focus-enabled;
+    callback done-closing();
+    callback save-setting(key: string, value: string);
+    callback add-mock-data();
+    callback open-popup-window(title: string, content: string);
+    callback restore-focus-enabled-change(enabled: bool);
+
+    Timer {
+        interval: 30ms;
+        running: root.closing;
+        triggered => { root.done-closing(); }
+    }
+
+    Rectangle {
+        opacity: 1.0;
+        background: root.panel-visible ? (ThemeManager.is-dark ? rgba(30, 30, 30, 0.67) : rgba(255, 255, 255, 0.978)) : transparent;
+
+        states [
+            visible when root.panel-visible: {
+                opacity: 1.0;
+                background: ThemeManager.is-dark ? rgba(30, 30, 30, 0.67) : rgba(255, 255, 255, 0.978);
+                in {
+                    animate opacity { duration: 200ms; easing: ease-out-quint; }
+                    animate background { duration: 200ms; }
+                }
+                out {
+                    animate opacity { duration: 20ms; easing: ease-out-quint; }
+                    animate background { duration: 20ms; }
+                }
+            }
+        ]
+
+        // Keep content during exit animation (closing phase), then remove to free layout space
+        if root.panel-visible || root.closing: ScrollView {
+            vertical-stretch: 1;
+            horizontal-scrollbar-policy: always-off;
+            vertical-scrollbar-policy: always-off;
+            
+            VerticalLayout {
+                padding: 12px;
+                spacing: 0px;
+                
+                // 外观 section
+                VerticalLayout {
+                    spacing: 6px;
+                    
+                    Text {
+                        text: "外观";
+                        color: ThemeManager.is-dark ? rgba(255, 255, 255, 0.7) : rgba(0, 0, 0, 0.6);
+                        font-size: 19px;
+                        font-weight: 600;
+                        horizontal-alignment: left;
+                        vertical-alignment: center;
+                    }
+                    
+                    Rectangle { height: 4px; }
+                }
+                
+                // Theme toggle row
+                Rectangle {
+                    height: 44px;
+                    
+                    HorizontalLayout {
+                        spacing: 8px;
+                        
+                        Text {
+                            text: "深色模式";
+                            color: ThemeManager.is-dark ? #ffffff : #1a1a1a;
+                            font-size: 15px;
+                            vertical-alignment: center;
+                        }
+                        
+                        Rectangle { horizontal-stretch: 1; }
+                        
+                        ToggleSwitch {
+                            checked: ThemeManager.is-dark;
+                            toggled => {
+                                ThemeManager.is-dark = !ThemeManager.is-dark;
+                                root.save-setting("theme", ThemeManager.is-dark ? "dark" : "light");
+                            }
+                        }
+                    }
+                }
+                
+                // 分隔符
+                Rectangle {
+                    height: 1px;
+                    background: ThemeManager.is-dark ? rgba(255, 255, 255, 0.1) : rgba(0, 0, 0, 0.1);
+                }
+                
+                // 窗口定位 section
+                VerticalLayout {
+                    spacing: 6px;
+                    
+                    Text {
+                        text: "窗口定位";
+                        color: ThemeManager.is-dark ? rgba(255, 255, 255, 0.7) : rgba(0, 0, 0, 0.6);
+                        font-size: 19px;
+                        font-weight: 600;
+                        horizontal-alignment: left;
+                        vertical-alignment: center;
+                    }
+                    
+                    Rectangle { height: 4px; }
+                }
+                
+                // Option: follow mouse (default)
+                RadioOption {
+                    text: "吸附至鼠标光标位置";
+                    selected: root.window-position-mode == 1;
+                    chosen => {
+                        root.window-position-mode = 1;
+                        root.save-setting("window-position-mode", "1");
+                    }
+                }
+
+                // Option: golden ratio centered
+                RadioOption {
+                    text: "黄金比例居中";
+                    selected: root.window-position-mode == 0;
+                    chosen => {
+                        root.window-position-mode = 0;
+                        root.save-setting("window-position-mode", "0");
+                    }
+                }
+                
+                // 分隔符
+                Rectangle {
+                    height: 1px;
+                    background: ThemeManager.is-dark ? rgba(255, 255, 255, 0.1) : rgba(0, 0, 0, 0.1);
+                }
+                
+                // 操作 section
+                VerticalLayout {
+                    spacing: 6px;
+                    
+                    Text {
+                        text: "操作";
+                        color: ThemeManager.is-dark ? rgba(255, 255, 255, 0.7) : rgba(0, 0, 0, 0.6);
+                        font-size: 19px;
+                        font-weight: 600;
+                        horizontal-alignment: left;
+                        vertical-alignment: center;
+                    }
+                    
+                    Rectangle { height: 4px; }
+                }
+                
+                // Restore focus toggle row
+                Rectangle {
+                    height: 44px;
+                    
+                    HorizontalLayout {
+                        spacing: 8px;
+                        
+                        Text {
+                            text: "窗口显示后恢复焦点";
+                            color: ThemeManager.is-dark ? #ffffff : #1a1a1a;
+                            font-size: 15px;
+                            vertical-alignment: center;
+                        }
+                        
+                        Rectangle { horizontal-stretch: 1; }
+                        
+                        ToggleSwitch {
+                            checked: root.restore-focus-enabled;
+                            toggled => {
+                                root.restore-focus-enabled = !root.restore-focus-enabled;
+                                root.save-setting("restore-focus", root.restore-focus-enabled ? "true" : "false");
+                                root.restore-focus-enabled-change(root.restore-focus-enabled);
+                            }
+                        }
+                    }
+                }
+                
+                // Add mock data button
+                Rectangle {
+                    height: 44px;
+                    
+                    HorizontalLayout {
+                        spacing: 8px;
+                        
+                        Text {
+                            text: "添加100条测试数据";
+                            color: ThemeManager.is-dark ? #ffffff : #1a1a1a;
+                            font-size: 15px;
+                            vertical-alignment: center;
+                        }
+                        
+                        Rectangle { horizontal-stretch: 1; }
+                        
+                        Rectangle {
+                            width: 32px;
+                            height: 32px;
+                            background: ThemeManager.is-dark ? rgba(0, 120, 212, 0.3) : rgba(0, 120, 212, 0.12);
+                            border-radius: 6px;
+                            
+                            Text {
+                                text: "+";
+                                color: #0078d4;
+                                font-size: 16px;
+                                font-weight: 600;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                            
+                            TouchArea {
+                                width: 100%;
+                                height: 100%;
+                                clicked => {
+                                    root.add-mock-data();
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // Test popup button
+                Rectangle {
+                    height: 44px;
+                    
+                    HorizontalLayout {
+                        spacing: 8px;
+                        
+                        Text {
+                            text: "测试弹出窗口";
+                            color: ThemeManager.is-dark ? #ffffff : #1a1a1a;
+                            font-size: 15px;
+                            vertical-alignment: center;
+                        }
+                        
+                        Rectangle { horizontal-stretch: 1; }
+                        
+                        Rectangle {
+                            width: 32px;
+                            height: 32px;
+                            background: ThemeManager.is-dark ? rgba(0, 120, 212, 0.3) : rgba(0, 120, 212, 0.12);
+                            border-radius: 6px;
+                            
+                            Text {
+                                text: "↗";
+                                color: #0078d4;
+                                font-size: 14px;
+                                font-weight: 600;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                            
+                            TouchArea {
+                                width: 100%;
+                                height: 100%;
+                                clicked => {
+                                    root.open-popup-window("测试窗口", "这是一个独立弹出窗口。它完全独立于主窗口，可以自由移动和调整大小。");
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // Spacer at end
+                Rectangle { height: 10px; }
+            }
+        }
+    }
+}

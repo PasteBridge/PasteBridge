@@ -1,0 +1,47 @@
+import { ThemeManager } from "../themes.slint";
+
+export component RadioOption {
+    in property <string> text;
+    in property <bool> selected;
+    callback chosen();
+
+    height: 44px;
+
+    HorizontalLayout {
+        spacing: 8px;
+
+        Rectangle {
+            width: 16px;
+            height: 16px;
+            border-radius: 8px;
+            border-width: 2px;
+            border-color: root.selected ? #0078d4 : (ThemeManager.is-dark ? rgba(255, 255, 255, 0.4) : rgba(0, 0, 0, 0.3));
+
+            Rectangle {
+                width: 6px;
+                height: 6px;
+                border-radius: 3px;
+                background: root.selected ? #0078d4 : transparent;
+                x: (parent.width - 6px) / 2;
+                y: (parent.height - 6px) / 2;
+            }
+        }
+
+        Text {
+            text: root.text;
+            color: root.selected ? #0078d4 : (ThemeManager.is-dark ? #ffffff : #1a1a1a);
+            font-size: 15px;
+            vertical-alignment: center;
+        }
+
+        Rectangle { horizontal-stretch: 1; }
+    }
+
+    TouchArea {
+        width: 100%;
+        height: 100%;
+        clicked => {
+            root.chosen();
+        }
+    }
+}
