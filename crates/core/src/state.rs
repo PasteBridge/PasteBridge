@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 use std::path::PathBuf;
 use crate::database::Database;
-use crate::models::ClipboardItem;
+use crate::models::{ClipboardItem, FavoriteFolder};
 use crate::device;
 
 pub struct AppState {
@@ -42,6 +42,11 @@ impl AppState {
     pub fn get_history(&self, ascending: bool) -> Vec<ClipboardItem> {
         let db = self.db.lock().unwrap();
         db.get_history(self.max_history_size, ascending).unwrap_or_default()
+    }
+
+    pub fn search_history(&self, query: &str, ascending: bool) -> Vec<ClipboardItem> {
+        let db = self.db.lock().unwrap();
+        db.search_history(query, self.max_history_size, ascending).unwrap_or_default()
     }
 
     pub fn get_item(&self, id: i64) -> Option<ClipboardItem> {
@@ -94,5 +99,72 @@ impl AppState {
 
     pub fn get_device_id(&self) -> &str {
         &self.device_id
+    }
+
+    // ========== Favorite Folders ==========
+
+    pub fn get_favorite_folders(&self) -> Vec<FavoriteFolder> {
+        let db = self.db.lock().unwrap();
+        db.get_favorite_folders().unwrap_or_default()
+    }
+
+    pub fn insert_favorite_folder(&self, name: &str) -> Option<i64> {
+        let db = self.db.lock().unwrap();
+        db.insert_favorite_folder(name).ok()
+    }
+
+    pub fn rename_favorite_folder(&self, id: i64, name: &str) -> bool {
+        let db = self.db.lock().unwrap();
+        db.rename_favorite_folder(id, name).is_ok()
+    }
+
+    pub fn delete_favorite_folder(&self, id: i64) -> bool {
+        let db = self.db.lock().unwrap();
+        db.delete_favorite_folder(id).is_ok()
+    }
+
+    pub fn reorder_favorite_folders(&self, old_index: usize, new_index: usize) -> bool {
+        let db = self.db.lock().unwrap();
+        db.reorder_favorite_folders(old_index, new_index).is_ok()
+    }
+
+    pub fn add_item_to_favorite_folder(&self, folder_index: usize, item_id: i64) -> bool {
+        let db = self.db.lock().unwrap();
+        db.add_item_to_favorite_folder(folder_index, item_id).is_ok()
+    }
+
+    pub fn get_favorite_folder_item_count(&self, folder_id: i64) -> usize {
+        let db = self.db.lock().unwrap();
+        db.get_favorite_folder_item_count(folder_id).unwrap_or(0)
+    }
+
+    pub fn get_favorite_folder_items(&self, folder_index: usize) -> Vec<crate::models::ClipboardItem> {
+        let db = self.db.lock().unwrap();
+        db.get_favorite_folder_items(folder_index).unwrap_or_default()
+    }
+
+    pub fn init_default_favorite_folders(&self) {
+        let db = self.db.lock().unwrap();
+        if let Err(e) = db.init_default_favorite_folders() {
+            eprintln!("[state] Failed to init default favorite folders: {}", e);
+        }
+    }
+
+    /// 加载所有收藏夹及其真实条目数,供启动时一次性同步到 UI 使用。
+    pub fn get_favorite_folders_with_count(&self) -> Vec<(FavoriteFolder, usize)> {
+        let db = self.db.lock().unwrap();
+        let folders = db.get_favorite_folders().unwrap_or_default();
+        folders
+            .into_iter()
+            .map(|f| {
+                let count = db.get_favorite_folder_item_count(f.id).unwrap_or(0);
+                (f, count)
+            })
+            .collect()
+    }
+
+    pub fn add_item(&self, text: &str) -> i64 {
+        let db = self.db.lock().unwrap();
+        db.insert_text(text).unwrap_or(-1)
     }
 }

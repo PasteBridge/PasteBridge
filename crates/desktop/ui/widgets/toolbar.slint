@@ -3,6 +3,11 @@ import { ThemeManager } from "../themes.slint";
 export component Toolbar {
     in property <bool> settings-visible;
     in property <bool> sort-ascending;
+    in-out property <bool> favorite-list-visible: false;
+    in property <bool> is-dragging-to-favorite: false;
+    in property <bool> pinned: false;
+    in property <length> mouse-window-x: 0px;
+    in property <length> mouse-window-y: 0px;
     callback start-drag();
     callback toggle-settings();
     callback clear-history();
@@ -10,7 +15,19 @@ export component Toolbar {
     callback toggle-favorite();
     callback quit-app();
     callback toggle-share();
+    callback toggle-pin();
     callback show-context-menu();
+    callback drag-over-favorite-button();
+    callback end-drag-to-favorite();
+    callback cancel-drag-to-favorite();
+
+    // 放手检测：拖拽结束时鼠标在爱心范围内 → 触发收藏夹
+    changed is-dragging-to-favorite => {
+        debug("toolbar.changed.is-dragging-to-favorite: ", root.is-dragging-to-favorite, " mouse-in-fav: ", favorite-btn._mouse-in-favorite, " mx:", root.mouse-window-x, " my:", root.mouse-window-y);
+        if !root.is-dragging-to-favorite && favorite-btn._mouse-in-favorite {
+            root.drag-over-favorite-button();
+        }
+    }
 
     width: 44px;
 
@@ -37,17 +54,20 @@ export component Toolbar {
                 spacing: 12px;
 
                 // Hamburger-to-X toggle button
-                Rectangle {
+                settings-btn := Rectangle {
                     width: 26px;
                     height: 26px;
                     background: transparent;
+
+                    property <bool> _hover: hb-ta.has-hover;
 
                     line1 := Rectangle {
                         x: 3px;
                         y: 8px;
                         width: 20px;
                         height: 2px;
-                        background: ThemeManager.is-dark ? #ffffff : #1a1a1a;
+                        background: settings-btn._hover ? #0078d4 : (ThemeManager.is-dark ? #ffffff : #1a1a1a);
+                        animate background { duration: 50ms; }
                         opacity: 1.0;
                         transform-origin: { x: 10px, y: 5px };
                         transform-rotation: 0deg;
@@ -75,7 +95,8 @@ export component Toolbar {
                         y: 16px;
                         width: 20px;
                         height: 2px;
-                        background: ThemeManager.is-dark ? #ffffff : #1a1a1a;
+                        background: settings-btn._hover ? #0078d4 : (ThemeManager.is-dark ? #ffffff : #1a1a1a);
+                        animate background { duration: 50ms; }
                         opacity: 1.0;
                         transform-origin: { x: 10px, y: -3px };
                         transform-rotation: 0deg;
@@ -99,7 +120,7 @@ export component Toolbar {
                     }
 
                     property <bool> _was-moved: false;
-                    TouchArea {
+                    hb-ta := TouchArea {
                         width: 100%;
                         height: 100%;
                         moved => {
@@ -127,7 +148,7 @@ export component Toolbar {
                 }
 
                 // 工具按钮
-                VerticalLayout {
+                tool_btns := VerticalLayout {
                     spacing: 16px;
 
                     // Clear button
@@ -136,14 +157,17 @@ export component Toolbar {
                         height: 24px;
                         background: transparent;
 
+                        property <bool> _hover: clear-ta.has-hover;
+
                         Image {
                             source: @image-url("../assets/delete.svg");
                             width: 20px;
                             height: 20px;
-                            colorize: ThemeManager.is-dark ? #ffffff : #1a1a1a;
+                            colorize: _hover ? #0078d4 : (ThemeManager.is-dark ? #ffffff : #1a1a1a);
+                            animate colorize { duration: 50ms; }
                         }
 
-                        TouchArea {
+                        clear-ta := TouchArea {
                             width: 100%;
                             height: 100%;
                             clicked => {
@@ -158,16 +182,19 @@ export component Toolbar {
                         height: 24px;
                         background: transparent;
 
+                        property <bool> _hover: sort-ta.has-hover;
+
                         Image {
                             source: root.sort-ascending ? @image-url("../assets/clock_arrow_up.svg") : @image-url("../assets/clock_arrow_down.svg");
                             width: 20px;
                             height: 20px;
-                            colorize: ThemeManager.is-dark ? #ffffff : #1a1a1a;
+                            colorize: _hover ? #0078d4 : (ThemeManager.is-dark ? #ffffff : #1a1a1a);
+                            animate colorize { duration: 50ms; }
                             horizontal-alignment: center;
                             vertical-alignment: center;
                         }
 
-                        TouchArea {
+                        sort-ta := TouchArea {
                             width: 100%;
                             height: 100%;
                             clicked => {
@@ -176,26 +203,51 @@ export component Toolbar {
                         }
                     }
 
-                    // Favorite button
-                    Rectangle {
+                    // Favorite button - uses position-based hover detection during drag
+                    favorite-btn := Rectangle {
                         width: 24px;
                         height: 24px;
                         background: transparent;
+
+                        property <bool> _hover: favorite-ta.has-hover;
+
+                        // ── 动态坐标检测（无需硬编码偏移） ──
+                        property <bool> _is-over-favorite:
+                            root.is-dragging-to-favorite
+                            && mouse-window-x >= root.x + tool_btns.x + favorite-btn.x
+                            && mouse-window-x <= root.x + tool_btns.x + favorite-btn.x + 24px
+                            && mouse-window-y >= root.y + tool_btns.y + favorite-btn.y
+                            && mouse-window-y <= root.y + tool_btns.y + favorite-btn.y + 24px;
+
+                        // 检测鼠标位置是否在爱心范围内（独立于拖拽状态，用于放手检测）
+                        property <bool> _mouse-in-favorite:
+                            mouse-window-x >= root.x + tool_btns.x + favorite-btn.x
+                            && mouse-window-x <= root.x + tool_btns.x + favorite-btn.x + 24px
+                            && mouse-window-y >= root.y + tool_btns.y + favorite-btn.y
+                            && mouse-window-y <= root.y + tool_btns.y + favorite-btn.y + 24px;
+
+                        property <bool> _highlighted: _hover || _is-over-favorite;
 
                         Image {
                             source: @image-url("../assets/favorite.svg");
                             width: 20px;
                             height: 20px;
-                            colorize: ThemeManager.is-dark ? #ffffff : #1a1a1a;
+                            colorize: root.favorite-list-visible || _highlighted
+                                ? #0078d4
+                                : (ThemeManager.is-dark ? #ffffff : #1a1a1a);
+                            animate colorize { duration: 50ms; }
                             horizontal-alignment: center;
                             vertical-alignment: center;
                         }
 
-                        TouchArea {
+                        favorite-ta := TouchArea {
                             width: 100%;
                             height: 100%;
+
                             clicked => {
-                                root.toggle-favorite();
+                                if !root.is-dragging-to-favorite {
+                                    root.favorite-list-visible = !root.favorite-list-visible;
+                                }
                             }
                         }
                     }
@@ -206,16 +258,19 @@ export component Toolbar {
                         height: 24px;
                         background: transparent;
 
+                        property <bool> _hover: quit-ta.has-hover;
+
                         Text {
                             text: "×";
-                            color: ThemeManager.is-dark ? #ffffff : #1a1a1a;
+                            color: _hover ? #0078d4 : (ThemeManager.is-dark ? #ffffff : #1a1a1a);
+                            animate color { duration: 50ms; }
                             font-size: 20px;
                             font-weight: 500;
                             horizontal-alignment: center;
                             vertical-alignment: center;
                         }
 
-                        TouchArea {
+                        quit-ta := TouchArea {
                             width: 100%;
                             height: 100%;
                             clicked => {
@@ -230,14 +285,53 @@ export component Toolbar {
                     vertical-stretch: 1;
                 }
 
-                // Share button
-                Image {
-                    source: @image-url("../assets/share.svg");
+                // Pin (置顶) button - 位于同步按钮上方
+                Rectangle {
                     width: 24px;
                     height: 24px;
-                    colorize: ThemeManager.is-dark ? #ffffff : #1a1a1a;
+                    background: transparent;
 
-                    TouchArea {
+                    property <bool> _hover: pin-ta.has-hover;
+
+                    Image {
+                        source: @image-url("../assets/pin.svg");
+                        width: 20px;
+                        height: 20px;
+                        colorize: root.pinned || _hover
+                            ? #0078d4
+                            : (ThemeManager.is-dark ? #ffffff : #1a1a1a);
+                        animate colorize { duration: 50ms; }
+                        // 置顶时旋转 45°，直观表示"被钉住"
+                        transform-rotation: root.pinned ? 45deg : 0deg;
+                        animate transform-rotation { duration: 150ms; easing: ease-out; }
+                    }
+
+                    pin-ta := TouchArea {
+                        width: 100%;
+                        height: 100%;
+                        clicked => {
+                            root.toggle-pin();
+                        }
+                    }
+                }
+
+                // Share button
+                Rectangle {
+                    width: 24px;
+                    height: 24px;
+                    background: transparent;
+
+                    property <bool> _hover: share-ta.has-hover;
+
+                    Image {
+                        source: @image-url("../assets/share.svg");
+                        width: 24px;
+                        height: 24px;
+                        colorize: _hover ? #0078d4 : (ThemeManager.is-dark ? #ffffff : #1a1a1a);
+                        animate colorize { duration: 50ms; }
+                    }
+
+                    share-ta := TouchArea {
                         width: 100%;
                         height: 100%;
                         clicked => {

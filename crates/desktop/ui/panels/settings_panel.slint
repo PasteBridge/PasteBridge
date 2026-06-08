@@ -2,45 +2,36 @@ import { ThemeManager } from "../themes.slint";
 import { ScrollView } from "std-widgets.slint";
 import { ToggleSwitch } from "../widgets/toggle_switch.slint";
 import { RadioOption } from "../widgets/radio_option.slint";
+import { PanelFadeContainer } from "../widgets/panel_fade.slint";
 
 export component SettingsPanel {
     in property <bool> panel-visible;
-    in property <bool> closing;
+    in-out property <bool> flash;
     in-out property <int> window-position-mode;
     in-out property <bool> restore-focus-enabled;
+    in-out property <bool> mouse-hover-focus-enabled;
+    in-out property <bool> scroll-indicator-enabled;
+    // Exposed so the parent can keep the panel mounted during the fade-out
+    // (mirrors PanelFadeContainer.closing).
+    out property <bool> closing: container.closing;
+    callback start-closing();
     callback done-closing();
     callback save-setting(key: string, value: string);
     callback add-mock-data();
     callback open-popup-window(title: string, content: string);
     callback restore-focus-enabled-change(enabled: bool);
+    callback mouse-hover-focus-enabled-change(enabled: bool);
+    callback reset-window-size();
 
-    Timer {
-        interval: 30ms;
-        running: root.closing;
-        triggered => { root.done-closing(); }
-    }
+    container := PanelFadeContainer {
+        panel-visible: root.panel-visible;
+        flash: root.flash;
+        visible-bg: ThemeManager.is-dark ? rgba(30, 30, 30, 0.67) : rgba(255, 255, 255, 0.978);
+        start-closing => { root.start-closing(); }
+        done-closing => { root.done-closing(); }
 
-    Rectangle {
-        opacity: 1.0;
-        background: root.panel-visible ? (ThemeManager.is-dark ? rgba(30, 30, 30, 0.67) : rgba(255, 255, 255, 0.978)) : transparent;
-
-        states [
-            visible when root.panel-visible: {
-                opacity: 1.0;
-                background: ThemeManager.is-dark ? rgba(30, 30, 30, 0.67) : rgba(255, 255, 255, 0.978);
-                in {
-                    animate opacity { duration: 200ms; easing: ease-out-quint; }
-                    animate background { duration: 200ms; }
-                }
-                out {
-                    animate opacity { duration: 20ms; easing: ease-out-quint; }
-                    animate background { duration: 20ms; }
-                }
-            }
-        ]
-
-        // Keep content during exit animation (closing phase), then remove to free layout space
-        if root.panel-visible || root.closing: ScrollView {
+        // Keep content during exit animation, then remove to free layout space.
+        if root.panel-visible || container.closing: ScrollView {
             vertical-stretch: 1;
             horizontal-scrollbar-policy: always-off;
             vertical-scrollbar-policy: always-off;
@@ -96,7 +87,99 @@ export component SettingsPanel {
                     height: 1px;
                     background: ThemeManager.is-dark ? rgba(255, 255, 255, 0.1) : rgba(0, 0, 0, 0.1);
                 }
-                
+
+                // 显示 section
+                VerticalLayout {
+                    spacing: 6px;
+
+                    Text {
+                        text: "显示";
+                        color: ThemeManager.is-dark ? rgba(255, 255, 255, 0.7) : rgba(0, 0, 0, 0.6);
+                        font-size: 19px;
+                        font-weight: 600;
+                        horizontal-alignment: left;
+                        vertical-alignment: center;
+                    }
+
+                    Rectangle { height: 4px; }
+                }
+
+                // Scroll indicator toggle row
+                Rectangle {
+                    height: 44px;
+
+                    HorizontalLayout {
+                        spacing: 8px;
+
+                        Text {
+                            text: "滚动时显示时间指示器";
+                            color: ThemeManager.is-dark ? #ffffff : #1a1a1a;
+                            font-size: 15px;
+                            vertical-alignment: center;
+                        }
+
+                        Rectangle { horizontal-stretch: 1; }
+
+                        ToggleSwitch {
+                            checked: root.scroll-indicator-enabled;
+                            toggled => {
+                                root.scroll-indicator-enabled = !root.scroll-indicator-enabled;
+                                root.save-setting("scroll-indicator", root.scroll-indicator-enabled ? "true" : "false");
+                            }
+                        }
+                    }
+                }
+
+                // Reset window size button
+                Rectangle {
+                    height: 44px;
+
+                    HorizontalLayout {
+                        spacing: 8px;
+
+                        Text {
+                            text: "恢复默认窗口大小";
+                            color: ThemeManager.is-dark ? #ffffff : #1a1a1a;
+                            font-size: 15px;
+                            vertical-alignment: center;
+                        }
+
+                        Rectangle { horizontal-stretch: 1; }
+
+                        Rectangle {
+                            width: 32px;
+                            height: 32px;
+                            background: reset-ta.has-hover
+                                ? (ThemeManager.is-dark ? rgba(0, 120, 212, 0.4) : rgba(0, 120, 212, 0.15))
+                                : (ThemeManager.is-dark ? rgba(0, 120, 212, 0.3) : rgba(0, 120, 212, 0.12));
+                            border-radius: 6px;
+
+                            Text {
+                                text: "⟳";
+                                color: #0078d4;
+                                font-size: 16px;
+                                font-weight: 600;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+
+                            reset-ta := TouchArea {
+                                width: 100%;
+                                height: 100%;
+                                clicked => {
+                                    root.reset-window-size();
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 分隔符
+                Rectangle {
+                    height: 1px;
+                    background: ThemeManager.is-dark ? rgba(255, 255, 255, 0.1) : rgba(0, 0, 0, 0.1);
+                }
+
                 // 窗口定位 section
                 VerticalLayout {
                     spacing: 6px;
@@ -177,6 +260,53 @@ export component SettingsPanel {
                                 root.restore-focus-enabled = !root.restore-focus-enabled;
                                 root.save-setting("restore-focus", root.restore-focus-enabled ? "true" : "false");
                                 root.restore-focus-enabled-change(root.restore-focus-enabled);
+                            }
+                        }
+                    }
+                }
+                
+                // Mouse hover focus toggle row
+                Rectangle {
+                    height: 44px;
+                    
+                    HorizontalLayout {
+                        spacing: 8px;
+                        
+                        Text {
+                            text: "鼠标悬停聚焦";
+                            color: ThemeManager.is-dark ? #ffffff : #1a1a1a;
+                            font-size: 15px;
+                            vertical-alignment: center;
+                        }
+
+                        Rectangle {
+                            width: 14px;
+                            height: 14px;
+                            border-radius: 7px;
+                            background: ThemeManager.is-dark ? rgba(255, 255, 255, 0.15) : rgba(0, 0, 0, 0.08);
+                            TouchArea {
+                                clicked => {
+                                    root.open-popup-window("鼠标悬停聚焦", "开启后，鼠标移动到 PasteBridge 窗口范围内时自动获取焦点，移出窗口后自动将焦点归还给之前的窗口。");
+                                }
+                            }
+                            Text {
+                                text: "?";
+                                color: ThemeManager.is-dark ? rgba(255, 255, 255, 0.4) : rgba(0, 0, 0, 0.35);
+                                font-size: 10px;
+                                font-weight: 600;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                        }
+                        
+                        Rectangle { horizontal-stretch: 1; }
+                        
+                        ToggleSwitch {
+                            checked: root.mouse-hover-focus-enabled;
+                            toggled => {
+                                root.mouse-hover-focus-enabled = !root.mouse-hover-focus-enabled;
+                                root.save-setting("mouse-hover-focus", root.mouse-hover-focus-enabled ? "true" : "false");
+                                root.mouse-hover-focus-enabled-change(root.mouse-hover-focus-enabled);
                             }
                         }
                     }

@@ -9,57 +9,137 @@
     <link rel="icon" href="favicon.ico" type="image/x-icon">
 </head>
 <body>
-    <div class="bg-layer"></div>
-    <div class="bg-blur"></div>
-    
+    <!-- 顶部导航栏 -->
+    <nav class="top-nav">
+        <div class="top-nav-inner">
+            <a href="#" class="top-nav-logo">
+                <img src="favicon.png" alt="PasteBridge">
+                <span>PasteBridge</span>
+            </a>
+            <ul class="top-nav-links">
+                <li><a href="#features">功能</a></li>
+                <li><a href="#tech">技术</a></li>
+                <li><a href="#splash">体验</a></li>
+                <li><a href="#download">下载</a></li>
+            </ul>
+        </div>
+    </nav>
+
     <main class="content">
-        <!-- Hero Section - Full Screen Banner -->
+        <!-- Hero Section - Apple 风格大图 -->
         <section class="hero" id="hero">
-            <div class="hero-banner">
-                <div class="hero-logo-top">
-                    <img src="favicon.png" alt="PasteBridge" class="hero-logo-img">
+            <div class="hero-bg">
+                <img src="https://images.unsplash.com/photo-1629654297299-c8506221ca97?w=1920&q=80" alt="Clipboard">
+            </div>
+            <div class="hero-glass-overlay"></div>
+            <div class="hero-content">
+                <div class="hero-badge">
+                    <i class="fa fa-bolt"></i>
+                    全新发布
                 </div>
-                <div class="hero-content-banner">
-                    <img src="pastebridge-banner.png" alt="PasteBridge" class="hero-banner-img">
-                    <p class="hero-tagline-cn">最终剪贴板幻想</p>
+                <h1 class="hero-title">PasteBridge</h1>
+                <p class="hero-subtitle">派思桥 · 最终剪贴板幻想</p>
+                <p class="hero-tagline">记录每一次复制，高效管理剪贴内容</p>
+                <div class="hero-cta-group">
+                    <a href="#download" class="btn btn-primary">
+                        <i class="fa fa-download"></i> 立即下载
+                    </a>
+                    <a href="#features" class="btn btn-secondary">
+                        了解更多
+                    </a>
+                </div>
+            </div>
+            <div class="hero-product-showcase">
+                <div class="hero-product-card">
+                    <img src="https://images.unsplash.com/photo-1512941937669-90a1b58e7e9c?w=1400&q=80" alt="App Screenshot">
                 </div>
             </div>
         </section>
 
-        <!-- Features Section -->
+        <!-- Features Section - Apple 风格大卡片 -->
         <section class="features" id="features">
             <div class="section-inner">
                 <h2 class="section-headline">功能强大的<br>剪贴板工具</h2>
                 <p class="section-subhead">记录每一次复制，高效管理剪贴内容</p>
-                
+
                 <div class="feature-grid">
                     <div class="feature-item">
+                        <div class="feature-color-bar">
+                            <img src="https://images.unsplash.com/photo-1555066931-4365d14bab8c?w=600&q=80" alt="History">
+                        </div>
                         <div class="feature-icon">
                             <i class="fa fa-history"></i>
                         </div>
-                        <h3>历史记录</h3>
-                        <p>自动保存所有复制内容，支持文本和图片，历史记录随时查看</p>
+                        <div class="feature-text">
+                            <h3>历史记录</h3>
+                            <p>自动保存所有复制内容，支持文本和图片，历史记录随时查看</p>
+                        </div>
                     </div>
                     <div class="feature-item">
+                        <div class="feature-color-bar">
+                            <img src="https://images.unsplash.com/photo-1551434678-e076c223a692?w=600&q=80" alt="Search">
+                        </div>
                         <div class="feature-icon">
                             <i class="fa fa-search"></i>
                         </div>
-                        <h3>快速搜索</h3>
-                        <p>关键词精准定位，无需翻阅历史，快速找到所需内容</p>
+                        <div class="feature-text">
+                            <h3>快速搜索</h3>
+                            <p>关键词精准定位，无需翻阅历史，快速找到所需内容</p>
+                        </div>
                     </div>
                     <div class="feature-item">
+                        <div class="feature-color-bar">
+                            <img src="https://images.unsplash.com/photo-1559136555-9303baea8ebd?w=600&q=80" alt="Favorites">
+                        </div>
                         <div class="feature-icon">
                             <i class="fa fa-star"></i>
                         </div>
-                        <h3>收藏夹</h3>
-                        <p>标记重要内容，永不丢失，常用片段一键获取</p>
+                        <div class="feature-text">
+                            <h3>收藏夹</h3>
+                            <p>标记重要内容，永不丢失，常用片段一键获取</p>
+                        </div>
                     </div>
                     <div class="feature-item">
+                        <div class="feature-color-bar">
+                            <img src="https://images.unsplash.com/photo-1527689368864-3a821dbccc34?w=600&q=80" alt="Shortcuts">
+                        </div>
                         <div class="feature-icon">
                             <i class="fa fa-bolt"></i>
                         </div>
-                        <h3>快捷键</h3>
-                        <p>全局热键操作，双手不离键盘，高效调用剪贴板</p>
+                        <div class="feature-text">
+                            <h3>快捷键</h3>
+                            <p>全局热键操作，双手不离键盘，高效调用剪贴板</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Splash Section - 沉浸大图 + 毛玻璃数据卡 -->
+        <section class="splash" id="splash">
+            <div class="splash-bg">
+                <img src="https://images.unsplash.com/photo-1550751827-4bd374c3f58b?w=1920&q=80" alt="Tech Background">
+            </div>
+            <div class="splash-content">
+                <h2 class="section-headline">为什么选择 PasteBridge？</h2>
+                <p class="section-subhead">轻量、快速、安全 — 专为高效人士打造</p>
+
+                <div class="splash-stats">
+                    <div class="stat-card">
+                        <div class="stat-number">50MB</div>
+                        <div class="stat-label">安装体积</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number">&lt;5ms</div>
+                        <div class="stat-label">复制响应</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number">10K+</div>
+                        <div class="stat-label">活跃用户</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number">100%</div>
+                        <div class="stat-label">本地存储</div>
                     </div>
                 </div>
             </div>
@@ -70,7 +150,7 @@
             <div class="section-inner">
                 <h2 class="section-headline">技术架构</h2>
                 <p class="section-subhead">现代化技术栈，高性能与优雅并存</p>
-                
+
                 <div class="tech-grid">
                     <div class="tech-card">
                         <i class="fa fa-cog"></i>
@@ -93,7 +173,7 @@
             <div class="section-inner">
                 <h2 class="section-headline">下载 PasteBridge</h2>
                 <p class="section-subhead">选择适合您的平台</p>
-                
+
                 <div class="platform-grid">
                     <a href="#" class="platform-card">
                         <i class="fa fa-windows"></i>
@@ -113,15 +193,15 @@
                 </div>
             </div>
         </section>
-        
+
         <!-- Footer -->
         <footer class="footer">
-            <p>&copy; 2024 PasteBridge. All rights reserved.</p>
-            <p style="margin-top: 8px;">
-                <a href="https://github.com">GitHub</a> · 
-                <a href="#">隐私政策</a> · 
+            <div class="footer-links">
+                <a href="https://github.com" target="_blank">GitHub</a>
+                <a href="#">隐私政策</a>
                 <a href="#">使用条款</a>
-            </p>
+            </div>
+            <p>&copy; 2024 PasteBridge. All rights reserved.</p>
         </footer>
     </main>
 
@@ -140,13 +220,13 @@
                 <i class="fa fa-code"></i>
                 <span>技术</span>
             </a>
+            <a href="#splash" class="nav-item">
+                <i class="fa fa-rocket"></i>
+                <span>体验</span>
+            </a>
             <a href="#download" class="nav-item">
                 <i class="fa fa-download"></i>
                 <span>下载</span>
-            </a>
-            <a href="https://github.com" target="_blank" class="nav-item">
-                <i class="fa fa-github"></i>
-                <span>GitHub</span>
             </a>
         </div>
     </nav>

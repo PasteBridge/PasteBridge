@@ -3,19 +3,34 @@ import { ThemeManager } from "../themes.slint";
 export component PopupToast inherits PopupWindow {
     x: 0px;
     y: -48px;
-    width: 80px;
-    height: 32px;
+    width: 200px;
+    height: 40px;
 
-    Rectangle {
-        background: ThemeManager.is-dark ? #1a1a1a : #ffffff;
-        border-radius: 6px;
+    in property <string> message: "Copied";
+    in-out property <bool> shown: false;
+
+    container := Rectangle {
+        background: ThemeManager.is-dark ? rgba(34, 34, 34, 0.95) : rgba(255, 255, 255, 0.95);
+        border-radius: 8px;
+        border-width: 1px;
+        border-color: ThemeManager.is-dark ? rgba(255, 255, 255, 0.15) : rgba(0, 0, 0, 0.1);
+        opacity: 0.0;
+        animate opacity { duration: 150ms; easing: ease-in-out; }
+
+        states [
+            shown-state when root.shown: {
+                container.opacity: 1.0;
+            }
+        ]
 
         Text {
-            text: "Copied";
+            text: root.message;
             color: ThemeManager.is-dark ? #ffffff : #1a1a1a;
             font-size: 13px;
             horizontal-alignment: center;
             vertical-alignment: center;
+            width: 100%;
+            height: 100%;
         }
     }
 }

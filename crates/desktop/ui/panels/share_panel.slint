@@ -1,36 +1,21 @@
 import { ThemeManager } from "../themes.slint";
+import { PanelFadeContainer } from "../widgets/panel_fade.slint";
 
 export component SharePanel {
     in property <bool> share-visible;
-    in property <bool> closing;
+    in-out property <bool> flash;
+    out property <bool> closing: container.closing;
+    callback start-closing();
     callback done-closing();
 
-    Timer {
-        interval: 30ms;
-        running: root.closing;
-        triggered => { root.done-closing(); }
-    }
+    container := PanelFadeContainer {
+        panel-visible: root.share-visible;
+        flash: root.flash;
+        visible-bg: ThemeManager.is-dark ? rgba(30, 30, 30, 0.67) : rgba(255, 255, 255, 0.978);
+        start-closing => { root.start-closing(); }
+        done-closing => { root.done-closing(); }
 
-    Rectangle {
-        opacity: 1.0;
-        background: root.share-visible ? (ThemeManager.is-dark ? rgba(30, 30, 30, 0.67) : rgba(255, 255, 255, 0.978)) : transparent;
-
-        states [
-            visible when root.share-visible: {
-                opacity: 1.0;
-                background: ThemeManager.is-dark ? rgba(30, 30, 30, 0.67) : rgba(255, 255, 255, 0.978);
-                in {
-                    animate opacity { duration: 200ms; easing: ease-out-quint; }
-                    animate background { duration: 200ms; }
-                }
-                out {
-                    animate opacity { duration: 20ms; easing: ease-out-quint; }
-                    animate background { duration: 20ms; }
-                }
-            }
-        ]
-
-        if root.share-visible || root.closing: VerticalLayout {
+        if root.share-visible || container.closing: VerticalLayout {
             width: parent.width;
             padding: 16px;
             spacing: 12px;

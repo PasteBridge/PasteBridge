@@ -1,22 +1,49 @@
 import { ThemeManager } from "../themes.slint";
 
 export component SearchBox {
-    height: 40px;
+    in-out property <string> query: "";
+    callback query-changed(new-query: string);
+
+    height: 36px;
 
     Rectangle {
-        background: ThemeManager.is-dark ? rgba(0, 0, 0, 0.07) : rgba(255, 255, 255, 0.945);
+        background: transparent;
 
         HorizontalLayout {
             padding-left: 12px;
             padding-right: 12px;
-            spacing: 8px;
 
-            Text {
-                text: "搜索...";
-                color: ThemeManager.is-dark ? rgba(255, 255, 255, 0.5) : rgba(0, 0, 0, 0.5);
-                font-size: 12px;
-                vertical-alignment: center;
+            // 输入区域容器（用于叠加占位提示）
+            Rectangle {
+                horizontal-stretch: 1;
+
+                // 输入框
+                search-input := TextInput {
+                    width: 100%;
+                    height: 100%;
+                    vertical-alignment: center;
+                    font-size: 13px;
+                    color: ThemeManager.is-dark ? #ffffff : #1a1a1a;
+                    text <=> root.query;
+
+                    edited => {
+                        root.query-changed(root.query);
+                    }
+                }
+
+                // 占位提示（无输入时显示）
+                if root.query == "": Text {
+                    text: "搜索...";
+                    color: ThemeManager.is-dark ? rgba(255, 255, 255, 0.4) : rgba(0, 0, 0, 0.4);
+                    font-size: 13px;
+                    vertical-alignment: center;
+                }
             }
         }
+    }
+
+    // 公开方法：让父组件可以聚焦输入框
+    public function set-focus() {
+        search-input.focus();
     }
 }

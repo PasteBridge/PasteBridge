@@ -1,5 +1,10 @@
 slint::include_modules!();
 
+// mimalloc: aggressively returns freed memory to the OS
+// Rust's default allocator never unmaps pages, making Task Manager show high memory
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 slint::slint! {
     export component DummyWindow inherits Window {
         width: 1px;
@@ -12,6 +17,7 @@ slint::slint! {
 pub mod animation;
 pub mod callbacks;
 pub mod clipboard;
+pub mod drag_out;
 pub mod dummy_window;
 pub mod focus;
 pub mod popup;
@@ -38,23 +44,14 @@ fn main() {
 
     eprintln!("Starting PasteBridge...");
 
-    let memory_monitor = paste_bridge_core::memory::MemoryMonitor::new();
-    let initial_memory = memory_monitor.update();
-    eprintln!("[memory] Initial memory: {}", paste_bridge_core::memory::MemoryMonitor::format_memory(initial_memory));
-
-    // 启动时立即让 OS 回收空闲页面，减少内存占用
-    if let Some(freed) = memory_monitor.trim_working_set() {
-        eprintln!("[memory] Startup trim freed {}",
-            paste_bridge_core::memory::MemoryMonitor::format_memory(freed));
-    } else {
-        eprintln!("[memory] Startup trim: not supported on this platform");
-    }
-
     let app_data_dir = std::env::var("LOCALAPPDATA")
         .map(|p| std::path::PathBuf::from(p).join("PasteBridge"))
         .unwrap_or_else(|_| std::path::PathBuf::from("."));
 
     let state = paste_bridge_core::state::AppState::new(&app_data_dir, usize::MAX);
+
+    // 初始化默认收藏夹
+    state.init_default_favorite_folders();
 
     let app = AppWindow::new().unwrap();
     let app_weak = app.as_weak();
@@ -94,15 +91,105 @@ fn main() {
             }
             eprintln!("[config] Loaded restore-focus: {}", restore_focus);
         }
-    }
 
-    app.window().set_size(slint::LogicalSize::new(WINDOW_WIDTH, WINDOW_HEIGHT));
-    let pos = window_position::calc_window_position(&app, WINDOW_WIDTH as i32, WINDOW_HEIGHT as i32);
-    let _ = app.window().set_position(pos);
+        // 加载鼠标悬停聚焦设置
+        if let Some(mouse_hover_focus) = state.get_config("mouse-hover-focus") {
+            match mouse_hover_focus.as_str() {
+                "true" | "1" => {
+                    focus::set_mouse_hover_focus_enabled(true);
+                    app.set_mouse_hover_focus_enabled(true);
+                }
+                "false" | "0" => {
+                    focus::set_mouse_hover_focus_enabled(false);
+                    app.set_mouse_hover_focus_enabled(false);
+                }
+                _ => {}
+            }
+            eprintln!("[config] Loaded mouse-hover-focus: {}", mouse_hover_focus);
+        }
+
+        // 加载置顶（pin）设置
+        if let Some(pinned) = state.get_config("pinned") {
+            match pinned.as_str() {
+                "true" | "1" => {
+                    app.set_pinned(true);
+                }
+                "false" | "0" => {
+                    app.set_pinned(false);
+                }
+                _ => {}
+            }
+            eprintln!("[config] Loaded pinned: {}", pinned);
+        }
+
+        // 加载窗口大小设置
+        let mut loaded_width = WINDOW_WIDTH;
+        let mut loaded_height = WINDOW_HEIGHT;
+
+        if let Some(width_str) = state.get_config("window-width") {
+            if let Ok(width) = width_str.parse::<f32>() {
+                if width >= 200.0 && width <= 600.0 {
+                    loaded_width = width;
+                    eprintln!("[config] Loaded window-width: {}", width);
+                }
+            }
+        }
+
+        if let Some(height_str) = state.get_config("window-height") {
+            if let Ok(height) = height_str.parse::<f32>() {
+                if height >= 300.0 && height <= 800.0 {
+                    loaded_height = height;
+                    eprintln!("[config] Loaded window-height: {}", height);
+                }
+            }
+        }
+
+        app.window().set_size(slint::LogicalSize::new(loaded_width, loaded_height));
+        let pos = window_position::calc_window_position(&app, loaded_width as i32, loaded_height as i32);
+        let _ = app.window().set_position(pos);
+    }
     let _ = app.window().show();
     tray::IS_VISIBLE.store(true, Ordering::SeqCst);
 
     focus::start_focus_tracker();
+
+    // Window size change monitor
+    {
+        let app_weak_for_size = app_weak.clone();
+        let last_width = Arc::new(std::sync::atomic::AtomicI32::new(app.window().size().width as i32));
+        let last_height = Arc::new(std::sync::atomic::AtomicI32::new(app.window().size().height as i32));
+
+        std::thread::spawn(move || {
+            loop {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+
+                if let Some(app) = app_weak_for_size.upgrade() {
+                    let current_size = app.window().size();
+                    let current_width = current_size.width as i32;
+                    let current_height = current_size.height as i32;
+
+                    let last_w = last_width.load(std::sync::atomic::Ordering::Relaxed);
+                    let last_h = last_height.load(std::sync::atomic::Ordering::Relaxed);
+
+                    if current_width != last_w || current_height != last_h {
+                        last_width.store(current_width, std::sync::atomic::Ordering::Relaxed);
+                        last_height.store(current_height, std::sync::atomic::Ordering::Relaxed);
+
+                        let app_clone = app_weak_for_size.clone();
+                        let _ = slint::invoke_from_event_loop(move || {
+                            if let Some(app) = app_clone.upgrade() {
+                                app.set_size_tooltip_visible(true);
+                                app.set_last_width(current_width);
+                                app.set_last_height(current_height);
+                            }
+                        });
+                    }
+                } else {
+                    break;
+                }
+            }
+        });
+    }
 
     let popup_tooltip = Arc::new(std::sync::Mutex::new(None::<PopupTooltipWindow>));
     let popup_tooltip_clone = popup_tooltip.clone();
@@ -116,51 +203,31 @@ fn main() {
     let state_for_init = state.clone();
     let app_for_init = app.as_weak();
     let entries_for_init = clipboard_entries_clone.clone();
+    let app_data_dir_for_init = app_data_dir.clone();
     slint::invoke_from_event_loop(move || {
-        sync::sync_history_to_ui(&app_for_init, &state_for_init, &entries_for_init, false);
+        sync::sync_history_to_ui(&app_for_init, &state_for_init, &entries_for_init, &app_data_dir_for_init, false);
     }).ok();
 
     let app_weak_clone = app_weak.clone();
     let state_for_clipboard = state.clone();
     let state_for_ui = state.clone();
     let entries_for_update = clipboard_entries_clone.clone();
-    let memory_monitor_clone = Arc::new(memory_monitor);
-    let mem_for_periodic = memory_monitor_clone.clone();
-    std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_secs(120));
-        loop {
-            if let Some(freed) = mem_for_periodic.trim_working_set() {
-                eprintln!("[memory] Periodic trim freed {}",
-                    paste_bridge_core::memory::MemoryMonitor::format_memory(freed));
-            }
-            std::thread::sleep(std::time::Duration::from_secs(60));
+    clipboard::start_clipboard_monitor(state_for_clipboard, {
+        let app_data_dir_for_clip_cb = app_data_dir.clone();
+        move || {
+            let weak = app_weak_clone.clone();
+            let state = state_for_ui.clone();
+            let entries_for_update = entries_for_update.clone();
+
+            sync::sync_history_to_ui_async(
+                weak,
+                state,
+                entries_for_update,
+                app_data_dir_for_clip_cb.clone(),
+                true,
+            );
         }
-    });
-    let mem_for_update = memory_monitor_clone.clone();
-    clipboard::start_clipboard_monitor(state_for_clipboard, move || {
-        let weak = app_weak_clone.clone();
-        let state = state_for_ui.clone();
-        let entries_for_update = entries_for_update.clone();
-        let mem = mem_for_update.clone();
-
-        let _ = slint::invoke_from_event_loop(move || {
-            static UPDATE_COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-            let count = UPDATE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-
-            let mem_before = if count % 10 == 0 { Some(mem.update()) } else { None };
-
-            sync::sync_history_to_ui(&weak, &state, &entries_for_update, true);
-
-            if let Some(before) = mem_before {
-                let mem_after = mem.update();
-                let mem_delta = if mem_after > before { mem_after - before } else { 0 };
-                eprintln!("[memory] Update {}: {} (+{})",
-                    count,
-                    paste_bridge_core::memory::MemoryMonitor::format_memory(mem_after),
-                    paste_bridge_core::memory::MemoryMonitor::format_memory(mem_delta));
-            }
-        });
-    });
+    }, app_data_dir.clone());
 
     #[cfg(target_os = "windows")]
     window_effects::apply_window_effects();
@@ -189,12 +256,10 @@ fn main() {
         }
     };
 
-    let mem_for_tray = memory_monitor_clone.clone();
     let handles = tray::setup_tray();
     let _tray_icon = handles.tray_icon;
     let weak_for_tray = app_weak.clone();
     tray::start_tray_event_loop(handles.show_id, handles.quit_id, hotkey_id, move || {
-        let mem = mem_for_tray.clone();
         let _ = slint::invoke_from_event_loop({
             let weak = weak_for_tray.clone();
             move || {
@@ -206,10 +271,6 @@ fn main() {
 
                         let _ = app.window().hide();
                         tray::IS_VISIBLE.store(false, Ordering::SeqCst);
-
-                        let freed = mem.trim_working_set();
-                        eprintln!("[memory] Tray: Window hidden, freed {}",
-                            freed.map_or("N/A".to_string(), |b| paste_bridge_core::memory::MemoryMonitor::format_memory(b)));
                     } else {
                         app.window().set_size(slint::LogicalSize::new(WINDOW_WIDTH, WINDOW_HEIGHT));
                         let pos = window_position::calc_window_position(&app, WINDOW_WIDTH as i32, WINDOW_HEIGHT as i32);
@@ -242,9 +303,9 @@ fn main() {
         app_weak: app_weak.clone(),
         state: state.clone(),
         clipboard_entries: clipboard_entries_clone.clone(),
-        memory_monitor: memory_monitor_clone.clone(),
         popup_tooltip: popup_tooltip_clone.clone(),
         popup_weak_holder: popup_weak_holder_clone.clone(),
+        app_data_dir: Arc::new(app_data_dir.clone()),
     };
     callbacks::register_all(&app, &callback_ctx);
 

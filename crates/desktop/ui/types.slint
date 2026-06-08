@@ -1,16 +1,22 @@
-export struct IssueData {
+export struct FavoriteItem {
     id: int,
-    title: string,
-    author: string,
-    date: string,
-    milestone: string,
+    name: string,
+    count: int,
 }
 
-export struct VersionData {
+export enum ContentKind {
+    Text,
+    Image,
+}
+
+// 列表项的统一数据结构,文本和图片共用
+export struct ClipboardEntryData {
     id: int,
-    parent_id: int,
-    content_text: string,
-    version_number: int,
-    created_at: string,
-    comment: string,
+    content-kind: ContentKind,
+    text: string,           // 文本项: 实际内容; 图片项: 空
+    image: image,           // 图片项: 加载好的 Slint Image; 文本项: 空 image
+    timestamp: string,      // 格式化好的时间字符串
+    width: int,             // 图片宽度; 文本项为 0
+    height: int,            // 图片高度; 文本项为 0
+    file-size: int,         // 文件大小(字节)
 }

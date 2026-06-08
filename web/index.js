@@ -1,50 +1,30 @@
 document.addEventListener('DOMContentLoaded', function() {
-    // ===== 背景彩虹动画 =====
-    const bgLayer = document.querySelector('.bg-layer');
-    const bgBlur = document.querySelector('.bg-blur');
-    let hue = 0;
-    
-    function animateBackground() {
-        hue = (hue + 0.15) % 100;
-        const pos = hue;
-        if (bgLayer) {
-            bgLayer.style.backgroundPosition = `${pos}% 50%`;
-        }
-        if (bgBlur) {
-            bgBlur.style.backgroundPosition = `${pos}% 50%`;
-        }
-        requestAnimationFrame(animateBackground);
-    }
-    
-    if (bgLayer) {
-        animateBackground();
-    }
-    
+    'use strict';
+
     // ===== 底部导航激活状态 =====
-    const navItems = document.querySelectorAll('.nav-item');
-    const sections = document.querySelectorAll('section[id]');
-    
+    var navItems = document.querySelectorAll('.nav-item');
+    var sections = document.querySelectorAll('section[id]');
+
     function updateActiveNav() {
-        const scrollY = window.scrollY + window.innerHeight / 3;
-        
-        sections.forEach(section => {
-            const sectionTop = section.offsetTop;
-            const sectionHeight = section.offsetHeight;
-            const sectionId = section.getAttribute('id');
-            
+        var scrollY = window.scrollY + window.innerHeight / 3;
+
+        sections.forEach(function(section) {
+            var sectionTop = section.offsetTop;
+            var sectionHeight = section.offsetHeight;
+            var sectionId = section.getAttribute('id');
+
             if (scrollY >= sectionTop && scrollY < sectionTop + sectionHeight) {
-                navItems.forEach(item => {
+                navItems.forEach(function(item) {
                     item.classList.remove('active');
-                    if (item.getAttribute('href') === `#${sectionId}`) {
+                    if (item.getAttribute('href') === '#' + sectionId) {
                         item.classList.add('active');
                     }
                 });
             }
         });
-        
-        // 首页检测
+
         if (window.scrollY < window.innerHeight / 2) {
-            navItems.forEach(item => {
+            navItems.forEach(function(item) {
                 item.classList.remove('active');
                 if (item.getAttribute('href') === '#hero') {
                     item.classList.add('active');
@@ -52,17 +32,17 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         }
     }
-    
+
     window.addEventListener('scroll', updateActiveNav);
     updateActiveNav();
-    
+
     // ===== 平滑滚动 =====
-    navItems.forEach(item => {
+    navItems.forEach(function(item) {
         item.addEventListener('click', function(e) {
-            const href = this.getAttribute('href');
-            if (href && href.startsWith('#')) {
+            var href = this.getAttribute('href');
+            if (href && href.charAt(0) === '#') {
                 e.preventDefault();
-                const target = document.querySelector(href);
+                var target = document.querySelector(href);
                 if (target) {
                     target.scrollIntoView({
                         behavior: 'smooth',
@@ -72,73 +52,71 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     });
-    
-    // ===== 滚动淡入动画 =====
-    const observerOptions = {
-        threshold: 0.1,
-        rootMargin: '0px 0px -50px 0px'
-    };
-    
-    const observer = new IntersectionObserver(function(entries) {
-        entries.forEach(entry => {
+
+    // ===== 滚动入场动画 =====
+    var animatedElements = document.querySelectorAll(
+        '.feature-item, .tech-card, .platform-card, .stat-card, .section-headline, .hero-content, .hero-product-card'
+    );
+
+    // Hero 内容立即显示
+    var heroContent = document.querySelector('.hero-content');
+    var heroCard = document.querySelector('.hero-product-card');
+    if (heroContent) {
+        heroContent.style.opacity = '1';
+        heroContent.style.transform = 'translateY(0)';
+    }
+    if (heroCard) {
+        heroCard.style.opacity = '1';
+        heroCard.style.transform = 'translateY(0)';
+        heroCard.style.transition = 'opacity 0.8s ease 0.2s, transform 0.8s ease 0.2s';
+    }
+
+    // 非 Hero 元素初始隐藏
+    animatedElements.forEach(function(el) {
+        if (!el.classList.contains('hero-content') && !el.classList.contains('hero-product-card')) {
+            el.style.opacity = '0';
+            el.style.transform = 'translateY(24px)';
+            el.style.transition = 'opacity 0.6s ease, transform 0.6s ease';
+        }
+    });
+
+    var observer = new IntersectionObserver(function(entries) {
+        entries.forEach(function(entry) {
             if (entry.isIntersecting) {
-                entry.target.style.opacity = '1';
-                entry.target.style.transform = 'translateY(0)';
+                entry.target.style.opacity = '';
+                entry.target.style.transform = '';
+                observer.unobserve(entry.target);
             }
         });
-    }, observerOptions);
-    
-    // Hero 动画
-    const heroBanner = document.querySelector('.hero-banner');
-    if (heroBanner) {
-        heroBanner.style.opacity = '0';
-        heroBanner.style.transition = 'opacity 0.8s ease';
-        
-        setTimeout(() => {
-            heroBanner.style.opacity = '1';
-        }, 100);
-    }
-    
-    // 动画元素
-    const animatedElements = document.querySelectorAll('.feature-item, .tech-card, .platform-card');
-    animatedElements.forEach((el, index) => {
-        el.style.opacity = '0';
-        el.style.transform = 'translateY(30px)';
-        el.style.transition = `opacity 0.6s ease ${index * 0.1}s, transform 0.6s ease ${index * 0.1}s`;
+    }, {
+        threshold: 0.08,
+        rootMargin: '0px 0px -40px 0px'
+    });
+
+    animatedElements.forEach(function(el) {
         observer.observe(el);
     });
-    
+
     // ===== 平台卡片点击效果 =====
-    const platformCards = document.querySelectorAll('.platform-card');
-    platformCards.forEach(card => {
+    var platformCards = document.querySelectorAll('.platform-card');
+    platformCards.forEach(function(card) {
         card.addEventListener('click', function(e) {
             e.preventDefault();
-            const platform = this.querySelector('.platform-name').textContent;
-            alert(`即将下载 PasteBridge for ${platform}...\n\n（演示效果，实际下载链接待配置）`);
+            var platformEl = this.querySelector('.platform-name');
+            var platform = platformEl ? platformEl.textContent : '';
+            alert('\u5373\u5c06\u4e0b\u8f7d PasteBridge for ' + platform + '...\n\n\uff08\u6f14\u793a\u6548\u679c\uff0c\u5b9e\u9645\u4e0b\u8f7d\u94fe\u63a5\u5f85\u914d\u7f6e\uff09');
         });
     });
-    
-    // ===== Hero Banner 3D 悬浮效果 =====
-    if (heroBanner && window.innerWidth > 768) {
-        const heroImg = heroBanner.querySelector('.hero-banner-img');
-        if (heroImg) {
-            heroBanner.addEventListener('mousemove', function(e) {
-                const rect = heroImg.getBoundingClientRect();
-                const x = e.clientX - rect.left;
-                const y = e.clientY - rect.top;
-                const centerX = rect.width / 2;
-                const centerY = rect.height / 2;
-                const rotateX = (y - centerY) / 40;
-                const rotateY = (centerX - x) / 40;
-                
-                heroImg.style.transform = `perspective(1000px) rotateX(${rotateX}deg) rotateY(${rotateY}deg)`;
-                heroImg.style.transition = 'none';
-            });
-            
-            heroBanner.addEventListener('mouseleave', function() {
-                heroImg.style.transform = 'perspective(1000px) rotateX(0) rotateY(0)';
-                heroImg.style.transition = 'transform 0.5s ease';
-            });
-        }
+
+    // ===== 顶部导航栏滚动变深 =====
+    var topNav = document.querySelector('.top-nav');
+    if (topNav) {
+        window.addEventListener('scroll', function() {
+            if (window.scrollY > 100) {
+                topNav.style.background = 'rgba(0, 0, 0, 0.8)';
+            } else {
+                topNav.style.background = '';
+            }
+        });
     }
 });

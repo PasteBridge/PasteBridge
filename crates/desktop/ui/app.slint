@@ -1,17 +1,17 @@
-import { ScrollView, ListView } from "std-widgets.slint";
+﻿import { ScrollView, ListView } from "std-widgets.slint";
 import { ThemeManager, DarkTheme, LightTheme } from "themes.slint";
-import { IssueData, VersionData } from "types.slint";
+import { FavoriteItem, ClipboardEntryData, ContentKind } from "types.slint";
 import { PanelHeader } from "widgets/panel_header.slint";
 import { ToggleSwitch } from "widgets/toggle_switch.slint";
 import { RadioOption } from "widgets/radio_option.slint";
 import { PopupToast } from "widgets/popup_toast.slint";
 import { ContextMenu } from "widgets/context_menu.slint";
 import { Toolbar } from "widgets/toolbar.slint";
+import { FavoriteList } from "widgets/favorite_list.slint";
 import { SettingsPanel } from "panels/settings_panel.slint";
-import { IssuesPanel } from "panels/issues_panel.slint";
-import { VersionsPanel } from "panels/versions_panel.slint";
 import { SharePanel } from "panels/share_panel.slint";
 import { HistoryPanel } from "panels/history_panel.slint";
+import { AnimationTokens } from "animations.slint";
 
 export global MainContent {
     in-out property <float> opacity: 1.0;
@@ -49,30 +49,37 @@ export component AppWindow inherits Window {
     callback set-hovered-index(index: int);
     callback on-window-moved();
     callback toggle-theme();
-    callback toggle-issues();
-    callback select-issue(index: int);
-    callback toggle-versions();
-    callback save-version(index: int);
-    callback restore-version(version_id: int);
-    callback delete-version(version_id: int);
-    callback load-versions(parent_id: int);
-    callback add-mock-data();
     callback open-popup-window(title: string, content: string);
     callback on-database-updated();
     callback save-setting(key: string, value: string);
     callback restore-focus-enabled-change(enabled: bool);
+    callback mouse-hover-focus-enabled-change(enabled: bool);
+    callback reset-window-size();
+    callback toggle-multi-select(index: int);
+    callback toggle-selection(index: int);
+    callback clear-multi-select();
+    callback add-to-favorite(favorite-index: int, content: string);
+    callback drag-over-favorite-button();
+    callback end-drag-to-favorite();
+    callback cancel-drag-to-favorite();
+    callback drag-out-started(index: int);
+    callback load-favorite-folder(index: int);
+    callback back-to-all-history();
+    callback create-favorite-folder(name: string);
+    callback delete-favorite-folder(index: int);
+    callback toggle-pin();
+    callback reorder-favorite(old-index: int, new-index: int);
+    callback add-mock-data();
+    callback search-history(query: string);
 
     in property <[string]> clipboard-history;
+    in property <[string]> clipboard-timestamps;
+    in property <[ClipboardEntryData]> clipboard-entries;
     in-out property <bool> main-content-fade-out: false;
     in property <string> placeholder-text;
-    in property <[IssueData]> issues;
-    in property <[VersionData]> versions;
-    in property <int> current-parent-id: -1;
-    
+
     // Settings panel visibility
     in-out property <bool> settings-visible: false;
-    in-out property <bool> issues-visible: false;
-    in-out property <bool> versions-visible: false;
     in-out property <bool> share-visible: false;
 
     // Window positioning mode: 0 = golden ratio centered, 1 = follow mouse cursor (fallback when no input focus detected)
@@ -83,66 +90,149 @@ export component AppWindow inherits Window {
     in-out property <bool> sort-ascending: false;
     // Focus restoration setting: whether to restore focus to previous app after window shows
     in-out property <bool> restore-focus-enabled: true;
-    
+    // Mouse hover focus setting: whether to auto-focus when mouse enters the window
+    in-out property <bool> mouse-hover-focus-enabled: true;
+    // Pinned state: whether the window stays on top
+    in-out property <bool> pinned: false;
+
+    // Scroll indicator visibility (controlled by settings)
+    in-out property <bool> scroll-indicator-enabled: true;
+
     // Scroll indicator properties
     in-out property <bool> is-scrolling: false;
     in-out property <int> last-visible-index: 0;
 
-    // Closing animation state (keep panel in layout during fade-out)
+    // Favorite items
+    in-out property <[FavoriteItem]> favorite-items;
+    in-out property <bool> favorite-list-visible: false;
+    in property <int> current-favorite-folder: -1;
+    in property <string> current-favorite-folder-name: "";
+    in property <[string]> favorite-folder-contents;
+    in property <[ClipboardEntryData]> favorite-folder-entries;
+
+    // Multi-select
+    in-out property <bool> multi-select-mode: false;
+    in property <[bool]> selected-states;
+    in property <[string]> multi-select-texts;
+    in property <int> selected-count: 0;
+
+    // Search
+    in-out property <string> search-query: "";
+    in property <bool> has-search-results: true;
+
+    // Toast
+    in-out property <string> toast-message: "Copied";
+    in-out property <bool> toast-visible: false;
+
+    // Drag state
+    in-out property <bool> is-dragging: false;
+    in-out property <bool> is-dragging-to-favorite: false;
+    in property <string> dragging-text: "";
+    in-out property <length> mouse-window-x: 0px;
+    in-out property <length> mouse-window-y: 0px;
+    in-out property <int> hover-refresh-tick: 0;
+
+    // Flash animation state (driven by Rust on content updates)
+    in-out property <bool> settings-flash: false;
+    in-out property <bool> share-flash: false;
+
+    // Closing mirror state — set via container's start-closing/done-closing callbacks
+    // to keep the panel mounted during the fade-out.
     in-out property <bool> _settings-closing: false;
     in-out property <bool> _share-closing: false;
-    // Previous values for detecting visibility transitions
-    property <bool> _prev-settings-visible: false;
-    property <bool> _prev-share-visible: false;
+    in-out property <bool> _favorite-closing: false;
 
-    // Detect settings-visible/share-visible transitions (true→false) to trigger closing animation
-    transition-detect := Timer {
+    // Bottom indicator optimized properties
+    in-out property <bool> show-bottom-indicator: true;
+    property <string> _bottom-timestamp: "";
+    property <string> _bottom-counter: "";
+    property <int> _bottom-update-tick: 0;
+    property <int> _bottom-last-tick: 0;
+
+    // Size tooltip properties
+    in-out property <bool> size-tooltip-visible: false;
+    in-out property <int> last-width: 280;
+    in-out property <int> last-height: 396;
+    property <int> _size-change-tick: 0;
+    property <bool> _size-save-pending: false;
+
+    // Mutual exclusion: settings and share are mutually exclusive.
+    // Setting one to true forces the other to false, which its PanelFadeContainer
+    // detects via its own internal state machine and animates the close.
+    changed settings-visible => {
+        if (root.settings-visible) {
+            root.share-visible = false;
+        }
+    }
+    changed share-visible => {
+        if (root.share-visible) {
+            root.settings-visible = false;
+        }
+    }
+
+    // Debounced update on scroll or model changes — avoids re-evaluating Text bindings on every model sync
+    changed last-visible-index => { _bottom-update-tick += 1; }
+    changed clipboard-timestamps => { _bottom-update-tick += 1; }
+    changed clipboard-history => { _bottom-update-tick += 1; }
+
+    bottom-display-timer := Timer {
         interval: 50ms;
-        running: true;
+        running: _bottom-update-tick != _bottom-last-tick;
         triggered => {
-            // Detect settings closing transition (true→false)
-            if (root._prev-settings-visible && !root.settings-visible && !root._settings-closing) {
-                root._settings-closing = true;
+            _bottom-last-tick = _bottom-update-tick;
+            if (root.last-visible-index >= 0 && root.last-visible-index < root.clipboard-timestamps.length) {
+                root._bottom-timestamp = root.clipboard-timestamps[root.last-visible-index];
+            } else {
+                root._bottom-timestamp = "";
             }
+            root._bottom-counter = (root.last-visible-index + 1) + "/" + root.clipboard-history.length;
+        }
+    }
 
-            // Detect share closing transition (true→false)
-            if (root._prev-share-visible && !root.share-visible && !root._share-closing) {
-                root._share-closing = true;
-            }
+    // Size tooltip auto-hide timer
+    size-tooltip-timer := Timer {
+        interval: 800ms;
+        running: root.size-tooltip-visible;
+        triggered => {
+            root.size-tooltip-visible = false;
+        }
+    }
 
-            // Mutual exclusion: settings and share cannot be open simultaneously
-            // When settings opens while share is visible, close share with animation
-            if (root.settings-visible && !root._prev-settings-visible && root.share-visible) {
-                root._share-closing = true;
-                root.share-visible = false;
-            }
-            // When share opens while settings is visible, close settings with animation
-            if (root.share-visible && !root._prev-share-visible && root.settings-visible) {
-                root._settings-closing = true;
-                root.settings-visible = false;
-            }
-
-            root._prev-settings-visible = root.settings-visible;
-            root._prev-share-visible = root.share-visible;
+    // Window size save timer (debounced)
+    size-save-timer := Timer {
+        interval: 1000ms;
+        running: root._size-save-pending;
+        triggered => {
+            root._size-save-pending = false;
+            root.save-setting("window-width", round(root.width / 1px));
+            root.save-setting("window-height", round(root.height / 1px));
         }
     }
 
     // Copied 弹出提示
     popup := PopupToast { }
-    
+
     // 右键上下文菜单
     context-menu := ContextMenu {
         minimize-window => { root.minimize-window(); }
         quit-app => { root.quit-app(); }
     }
-    
+
     // Background gradient layer (底层)
     Rectangle {
+        x: 0px;
+        y: 0px;
+        width: 100%;
+        height: 100%;
         background: ThemeManager.is-dark ? rgba(0, 0, 0, 0) : rgba(255, 255, 255, 0);
     }
 
     // White border and shadow container
     Rectangle {
+        x: 0px;
+        y: 0px;
+        width: 100%;
+        height: 100%;
         background: ThemeManager.is-dark ? rgba(0, 0, 0, 0.12) : rgba(255, 255, 255, 0.63);
         border-width: 1px;
         border-color: ThemeManager.is-dark ? rgba(255, 255, 255, 0.15) : rgba(0, 0, 0, 0.1);
@@ -150,6 +240,10 @@ export component AppWindow inherits Window {
 
 
     HorizontalLayout {
+        x: 0px;
+        y: 0px;
+        width: 100%;
+        height: 100%;
         padding: 0px;
         spacing: 0px;
 
@@ -161,81 +255,158 @@ export component AppWindow inherits Window {
                     duration: root.main-content-fade-out ? 20ms : 200ms;
                     easing: ease-out-quint;
                 }
+
             VerticalLayout {
                 padding: 0px;
                 spacing: 0px;
 
                 // Settings panel
                 if root.settings-visible || root._settings-closing: SettingsPanel {
+                    vertical-stretch: 1;
+                    horizontal-stretch: 1;
                     panel-visible: root.settings-visible;
-                    closing: root._settings-closing;
+                    flash: root.settings-flash;
                     window-position-mode: root.window-position-mode;
                     restore-focus-enabled: root.restore-focus-enabled;
+                    mouse-hover-focus-enabled: root.mouse-hover-focus-enabled;
+                    scroll-indicator-enabled: root.scroll-indicator-enabled;
+                    start-closing => { root._settings-closing = true; }
                     done-closing => { root._settings-closing = false; }
                     save-setting(key, value) => { root.save-setting(key, value); }
-                    add-mock-data => { root.add-mock-data(); }
                     open-popup-window(title, content) => { root.open-popup-window(title, content); }
                     restore-focus-enabled-change(enabled) => { root.restore-focus-enabled-change(enabled); }
-                }
-
-                // Issues panel
-                if root.issues-visible: IssuesPanel {
-                    issues: root.issues;
-                    toggle-issues => { root.toggle-issues(); }
-                    select-issue(index) => { root.select-issue(index); }
-                }
-
-                // Versions panel
-                if root.versions-visible: VersionsPanel {
-                    versions: root.versions;
-                    toggle-versions => { root.toggle-versions(); }
-                    restore-version(version_id) => { root.restore-version(version_id); }
-                    delete-version(version_id) => { root.delete-version(version_id); }
+                    mouse-hover-focus-enabled-change(enabled) => { root.mouse-hover-focus-enabled-change(enabled); }
+                    reset-window-size => { root.reset-window-size(); }
                 }
 
                 // Share panel
                 if root.share-visible || root._share-closing: SharePanel {
+                    vertical-stretch: 1;
+                    horizontal-stretch: 1;
                     share-visible: root.share-visible;
-                    closing: root._share-closing;
+                    flash: root.share-flash;
+                    start-closing => { root._share-closing = true; }
                     done-closing => { root._share-closing = false; }
                 }
 
                 // History panel
-                if !root.settings-visible && !root._settings-closing && !root.issues-visible && !root.versions-visible && !root.share-visible && !root._share-closing: HistoryPanel {
+                if !root.settings-visible && !root._settings-closing && !root.share-visible && !root._share-closing: HistoryPanel {
                     vertical-stretch: 1;
-                    clipboard-history: root.clipboard-history;
-                    is-scrolling: root.is-scrolling;
-                    last-visible-index: root.last-visible-index;
+                    clipboard-history: root.current-favorite-folder >= 0 ? root.favorite-folder-contents : root.clipboard-history;
+                    clipboard-entries: root.current-favorite-folder >= 0 ? [] : root.clipboard-entries;
+                    clipboard-timestamps: root.clipboard-timestamps;
+                    is-scrolling <=> root.is-scrolling;
+                    last-visible-index <=> root.last-visible-index;
+                    is-dragging <=> root.is-dragging;
+                    dragging-index: root.is-dragging ? root.last-visible-index : -1;
+                    favorite-list-visible <=> root.favorite-list-visible;
+                    mouse-window-x <=> root.mouse-window-x;
+                    mouse-window-y <=> root.mouse-window-y;
+                    hover-refresh-tick <=> root.hover-refresh-tick;
+                    current-favorite-folder: root.current-favorite-folder;
+                    current-favorite-folder-name: root.current-favorite-folder-name;
+                    search-query <=> root.search-query;
+                    has-search-results: root.has-search-results;
                     copy-item(index) => { root.copy-item(index); }
                     set-hovered-index(index) => { root.set-hovered-index(index); }
-                    show-copy-toast => { popup.show(); popup.close(); }
+                    drag-over-favorite-button => { root.drag-over-favorite-button(); }
+                    end-drag-to-favorite => { root.end-drag-to-favorite(); }
+                    cancel-drag-to-favorite => { root.cancel-drag-to-favorite(); }
+                    drag-out-started(index) => { root.drag-out-started(index); }
+                    back-to-all-history => { root.back-to-all-history(); }
+                    multi-select-mode <=> root.multi-select-mode;
+                    selected-states: root.selected-states;
+                    multi-select-texts: root.multi-select-texts;
+                    selected-count: root.selected-count;
+                    toggle-multi-select(index) => { root.toggle-multi-select(index); }
+                    toggle-selection(index) => { root.toggle-selection(index); }
+                    clear-multi-select => { root.clear-multi-select(); }
+                    search-changed(query) => { root.search-history(query); }
                 }
             }
 
-            // Scroll position indicator - shows when scrolling
-            if !root.settings-visible && !root._settings-closing && !root.issues-visible && !root.versions-visible && !root.share-visible && !root._share-closing: Rectangle {
-                y: parent.height - 55px;
-                x: parent.width - 80px;
-                width: 70px;
-                height: 22px;
-                background: ThemeManager.is-dark ? rgba(0, 0, 0, 0.7) : rgba(0, 0, 0, 0.6);
-                border-radius: 11px;
+            // Scroll position indicator - shows when scrolling (100px, full width, gradient)
+            if !root.settings-visible && !root._settings-closing && !root.share-visible && !root._share-closing && root.show-bottom-indicator: Rectangle {
+                y: parent.height - 100px;
+                x: 0px;
+                width: parent.width;
+                height: 100px;
+                background: @linear-gradient(0deg, rgba(0, 0, 0, 0.8) 0%, rgba(0, 0, 0, 0.0) 100%);
                 opacity: root.is-scrolling ? 1.0 : 0.0;
                 animate opacity {
                     duration: 200ms;
                     easing: ease-out;
                 }
-                
+
+                // Left: time display (uses optimized private property, no direct model binding)
                 Text {
-                    text: (root.last-visible-index + 1) + "/" + root.clipboard-history.length;
+                    text: root._bottom-timestamp;
                     color: #ffffff;
-                    font-size: 11px;
+                    font-size: 12px;
+                    font-weight: 400;
+                    x: 12px;
+                    y: parent.height - 24px;
+                    vertical-alignment: bottom;
+                }
+
+                // Right: index / total (uses optimized private property, no direct model binding)
+                Text {
+                    text: root._bottom-counter;
+                    color: #ffffff;
+                    font-size: 12px;
+                    font-weight: 400;
+                    x: 12px;
+                    width: parent.width - 24px;
+                    y: parent.height - 24px;
+                    horizontal-alignment: right;
+                    vertical-alignment: bottom;
+                }
+            }
+
+            // Favorite list overlay - floats above history content
+            if root.favorite-list-visible || root._favorite-closing: FavoriteList {
+                panel-visible: root.favorite-list-visible;
+                favorite-items: root.favorite-items;
+                dragging-text: root.dragging-text;
+                x: 0px;
+                y: 0px;
+                width: 100%;
+                height: 100%;
+                start-closing => { root._favorite-closing = true; }
+                done-closing => { root._favorite-closing = false; }
+                reorder(old, new) => { root.reorder-favorite(old, new); }
+                add-to-favorite(idx) => { root.add-to-favorite(idx, root.dragging-text); }
+                load-favorite-folder(idx) => { root.load-favorite-folder(idx); }
+                create-favorite-folder(name) => { root.create-favorite-folder(name); }
+                delete-favorite-folder(idx) => { root.delete-favorite-folder(idx); }
+            }
+
+            // Size tooltip - floats above history panel
+            if !root.settings-visible && !root._settings-closing && !root.share-visible && !root._share-closing && root.size-tooltip-visible: Rectangle {
+                x: (parent.width - self.width) / 2;
+                y: parent.height - 20px - self.height;
+                width: size-text.preferred-width + 24px;
+                height: 28px;
+                background: ThemeManager.is-dark ? rgba(26, 26, 26, 0.95) : rgba(250, 250, 250, 0.95);
+                border-radius: 14px;
+                border-width: 1px;
+                border-color: ThemeManager.is-dark ? rgba(255, 255, 255, 0.15) : rgba(0, 0, 0, 0.1);
+
+                animate opacity {
+                    duration: AnimationTokens.tooltip-fade-in;
+                    easing: ease-in-out;
+                }
+
+                size-text := Text {
+                    text: round(root.width / 1px) + " × " + round(root.height / 1px);
+                    color: ThemeManager.is-dark ? #ffffff : #1a1a1a;
+                    font-size: 12px;
                     font-weight: 500;
                     horizontal-alignment: center;
                     vertical-alignment: center;
                 }
             }
-        } // End of VerticalLayout
+        } // close main-content Rectangle
 
         // Vertical line on toolbar left
         Rectangle {
@@ -247,6 +418,11 @@ export component AppWindow inherits Window {
         Toolbar {
             settings-visible: root.settings-visible;
             sort-ascending: root.sort-ascending;
+            favorite-list-visible <=> root.favorite-list-visible;
+            is-dragging-to-favorite: root.is-dragging-to-favorite;
+            pinned: root.pinned;
+            mouse-window-x: root.mouse-window-x;
+            mouse-window-y: root.mouse-window-y;
             start-drag => { root.start-drag(); }
             toggle-settings => { root.toggle-settings(); }
             clear-history => { root.clear-history(); }
@@ -254,7 +430,11 @@ export component AppWindow inherits Window {
             toggle-favorite => { root.toggle-favorite(); }
             quit-app => { root.quit-app(); }
             toggle-share => { root.toggle-share(); }
+            toggle-pin => { root.toggle-pin(); }
             show-context-menu => { context-menu.show(); }
+            drag-over-favorite-button => { root.drag-over-favorite-button(); }
+            end-drag-to-favorite => { root.end-drag-to-favorite(); }
+            cancel-drag-to-favorite => { root.cancel-drag-to-favorite(); }
         }
     }
 }
@@ -271,7 +451,7 @@ export component PopupTooltipWindow inherits Window {
     in property <string> content-text: "";
     in property <string> content-timestamp: "";
     in-out property <bool> show-pending: false;
-    
+
     in property <length> mouse-x: 0px;
     in property <length> mouse-y: 0px;
     in property <length> screen-width: 1920px;
@@ -282,9 +462,9 @@ export component PopupTooltipWindow inherits Window {
 
     property <length> tooltip-x: root.mouse-x + 5px;
     property <length> tooltip-y: root.mouse-y + 5px;
-    
+
     property <length> adjusted-x: (tooltip-x + 200px > root.screen-width) ? (root.screen-width - 200px - 5px) : ((tooltip-x < 5px) ? 5px : tooltip-x);
-    
+
     property <length> adjusted-y: (tooltip-y + 200px > root.screen-height) ? (root.screen-height - 200px - 5px) : ((tooltip-y < 5px) ? 5px : tooltip-y);
 
     x: adjusted-x;
@@ -295,9 +475,6 @@ export component PopupTooltipWindow inherits Window {
         animate opacity { duration: 100ms; easing: ease-in-out; }
 
         background: rgba(26, 26, 26, 0.97);
-        //border-radius: 8px;
-        //border-width: 1px;
-        //border-color: rgba(255, 255, 255, 0.12);
 
         states [
             shown when root.show-state: {
@@ -318,11 +495,11 @@ export component PopupTooltipWindow inherits Window {
                 horizontal-alignment: left;
                 vertical-alignment: top;
             }
-            
+
             Rectangle {
                 height: 6px;
             }
-            
+
             Rectangle {
                 height: 13px;
                 HorizontalLayout {

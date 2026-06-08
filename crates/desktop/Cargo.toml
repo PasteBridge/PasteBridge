@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 paste_bridge_core = { path = "../core" }
-slint = { path = "../../slint/api/rs/slint", default-features = false, features = ["std", "backend-winit", "renderer-femtovg", "raw-window-handle-06", "compat-1-2"] }
+slint = { path = "../../slint/api/rs/slint", default-features = false, features = ["std", "backend-winit", "renderer-skia", "raw-window-handle-06", "compat-1-2"] }
 global-hotkey = "0.6"
 clipboard-win = "5.4"
 arboard = "3.4"
@@ -16,11 +16,14 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tiny_http = "0.12"
 chrono = "0.4"
-windows = { version = "0.58", features = ["Win32_UI_WindowsAndMessaging", "Win32_Foundation", "Win32_System_LibraryLoader", "Win32_Graphics_Dwm", "Win32_UI_Controls", "Win32_Graphics_Gdi", "Win32_System_Threading", "Win32_System_ProcessStatus", "Win32_System_Time", "Win32_UI_Accessibility", "Win32_System_Com"] }
+windows = { version = "0.58", features = ["Win32_UI_WindowsAndMessaging", "Win32_System_DataExchange", "Win32_Foundation", "Win32_System_LibraryLoader", "Win32_Graphics_Dwm", "Win32_UI_Controls", "Win32_Graphics_Gdi", "Win32_System_Threading", "Win32_System_ProcessStatus", "Win32_System_Time", "Win32_UI_Accessibility", "Win32_System_Com", "Win32_UI_Shell", "Win32_System_Memory", "Win32_System_Ole", "Win32_UI_Input_KeyboardAndMouse"] }
 raw-window-handle = "0.6.2"
 window-vibrancy = "0.7.1"
 tray-icon = "0.14"
 windows-core = "0.58"
+winreg = "0.52"
+mimalloc = "0.1"
+image = "0.25"
 
 [build-dependencies]
 slint-build = { path = "../../slint/api/rs/build" }

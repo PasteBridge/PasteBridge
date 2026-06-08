@@ -1,0 +1,69 @@
+// Reusable fade-in/fade-out container for panel transitions.
+//
+// Owns the full close state machine internally:
+//   panel-visible  true→false  →  closing = true  →  opacity 1.0 → 0.0  →  done-closing()
+//   panel-visible  false→true  →  fade in        →  opacity 0.0 → 1.0
+//
+// `closing` is an out-property so the parent can keep the panel mounted
+// during the fade-out (e.g. `if root.settings-visible || settings-slot.closing: ...`).
+//
+// `flash` triggers a quick 20ms fade out, then a 200ms fade back in
+// (used for the list-refresh effect).
+
+import { AnimationTokens } from "../animations.slint";
+
+export component PanelFadeContainer {
+    in property <bool> panel-visible;
+    in property <color> visible-bg;
+    in-out property <bool> flash;
+    out property <bool> closing: false;
+    callback start-closing();
+    callback done-closing();
+
+    width: 100%;
+    height: 100%;
+
+    // Internal state machine.
+    property <bool> _prev-visible: false;
+
+    init => {
+        // Sync the baseline so the first real change sees a meaningful previous value.
+        root._prev-visible = root.panel-visible;
+    }
+
+    changed panel-visible => {
+        // Detect true→false transition; once that fires, the timer takes over.
+        if (root._prev-visible && !root.panel-visible) {
+            root.closing = true;
+            root.start-closing();
+        }
+        root._prev-visible = root.panel-visible;
+    }
+
+    // Opacity: flash takes priority over panel-visible/closing.
+    opacity: root.flash ? 0.0 : (root.panel-visible || root.closing ? 1.0 : 0.0);
+    animate opacity {
+        duration: root.flash ? AnimationTokens.panel-flash-out : (root.panel-visible ? AnimationTokens.panel-fade-in : AnimationTokens.panel-fade-out);
+        easing: ease-out-quint;
+    }
+
+    // Background rectangle — fills the parent component naturally.
+    Rectangle {
+        background: root.panel-visible ? root.visible-bg : transparent;
+        animate background {
+            duration: root.panel-visible ? AnimationTokens.panel-fade-in : AnimationTokens.panel-fade-out;
+        }
+
+        @children
+    }
+
+    // Closing-phase timer — fires once after the out-animation duration.
+    Timer {
+        interval: AnimationTokens.panel-closing-cleanup;
+        running: root.closing;
+        triggered => {
+            root.closing = false;
+            root.done-closing();
+        }
+    }
+}

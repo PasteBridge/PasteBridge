@@ -1,0 +1,15 @@
+// Centralized animation timing tokens for panel-level transitions.
+// Micro-interactions (hover, tooltip, etc.) stay inline at the call site
+// since centralizing them would add indirection without payoff.
+
+export global AnimationTokens {
+    // Panel fade durations
+    out property <duration> panel-fade-in: 200ms;
+    out property <duration> panel-fade-out: 20ms;
+    out property <duration> panel-flash-out: 20ms;
+    out property <duration> panel-closing-cleanup: 30ms;
+
+    // Tooltip fade durations
+    out property <duration> tooltip-fade-in: 150ms;
+    out property <duration> tooltip-fade-out: 150ms;
+}

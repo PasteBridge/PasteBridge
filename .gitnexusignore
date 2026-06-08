@@ -1,0 +1,37 @@
+# Exclude the vendored Slint framework submodule — it is a separate upstream
+# library, not part of PasteBridge's own codebase, and would dominate the
+# knowledge graph if indexed.
+slint/
+
+# Build artefacts
+target/
+web/font-awesome-4.7.0/
+
+# Generated / large binary assets
+crates/desktop/ui/SourceHanSans-Normal.ttc
+*.ttc
+*.ttf
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.ico
+*.icns
+*.svg
+
+# IDE / agent scratch files
+.idea/
+.vscode/
+.trae/
+.refact/
+.cursor/
+.claude/
+.aider.*
+
+# Backups and runtime logs
+*.bak
+*.log
+run.out
+run.err
+/test
+/1.txt

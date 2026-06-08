@@ -1,0 +1,275 @@
+import { ScrollView } from "std-widgets.slint";
+import { ThemeManager } from "../themes.slint";
+import { PanelFadeContainer } from "panel_fade.slint";
+import { FavoriteItem } from "../types.slint";
+
+export component FavoriteList {
+    in property <bool> panel-visible;
+    in property <[FavoriteItem]> favorite-items;
+    in property <string> dragging-text: "";
+    out property <bool> closing: container.closing;
+    callback start-closing();
+    callback done-closing();
+    callback reorder(int, int); // old-index, new-index
+    callback add-to-favorite(int); // favorite-index
+    callback load-favorite-folder(int); // folder-index
+    callback create-favorite-folder(string);
+    callback delete-favorite-folder(int); // folder-index
+
+    in-out property <bool> manage-expanded: false;
+    in-out property <bool> new-folder-input: false;
+    in-out property <bool> delete-mode: false;
+    in-out property <string> new-folder-name: "";
+
+    width: 100%;
+    height: 100%;
+
+    container := PanelFadeContainer {
+        panel-visible: root.panel-visible;
+        flash: false;
+        visible-bg: ThemeManager.is-dark ? rgba(30, 30, 30, 0.97) : rgba(255, 255, 255, 0.97);
+        start-closing => { root.start-closing(); }
+        done-closing => { root.done-closing(); }
+
+        // ===== 浮动按钮栏 =====
+        Rectangle {
+            y: 8px;
+            height: 32px;
+            z: 10;
+            background: transparent;
+
+            HorizontalLayout {
+                padding-left: 8px;
+                spacing: 6px;
+
+                // 管理按钮 (始终显示)
+                Rectangle {
+                    width: 32px;
+                    height: 32px;
+                    background: manage-btn-ta.has-hover
+                        ? (ThemeManager.is-dark ? rgba(255, 255, 255, 0.12) : rgba(0, 0, 0, 0.08))
+                        : transparent;
+                    border-radius: 6px;
+
+                    Text {
+                        text: "⚙";
+                        font-size: 16px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    manage-btn-ta := TouchArea {
+                        width: 100%;
+                        height: 100%;
+                        clicked => {
+                            root.manage-expanded = !root.manage-expanded;
+                            if !root.manage-expanded {
+                                root.new-folder-input = false;
+                                root.delete-mode = false;
+                                root.new-folder-name = "";
+                            }
+                        }
+                    }
+                }
+
+                // + 新建按钮 (管理模式展开时显示)
+                if root.manage-expanded: Rectangle {
+                    width: 32px;
+                    height: 32px;
+                    background: add-btn-ta.has-hover
+                        ? (ThemeManager.is-dark ? rgba(0, 120, 212, 0.25) : rgba(0, 120, 212, 0.15))
+                        : (ThemeManager.is-dark ? rgba(0, 120, 212, 0.12) : rgba(0, 120, 212, 0.06));
+                    border-radius: 6px;
+
+                    Text {
+                        text: "+";
+                        color: #0078d4;
+                        font-size: 18px;
+                        font-weight: 600;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    add-btn-ta := TouchArea {
+                        width: 100%;
+                        height: 100%;
+                        clicked => {
+                            root.new-folder-input = !root.new-folder-input;
+                            root.delete-mode = false;
+                            if root.new-folder-input {
+                                root.new-folder-name = "";
+                            }
+                        }
+                    }
+                }
+
+                // 垃圾桶按钮 (管理模式展开时显示)
+                if root.manage-expanded: Rectangle {
+                    width: 32px;
+                    height: 32px;
+                    background: trash-btn-ta.has-hover
+                        ? (ThemeManager.is-dark ? rgba(220, 53, 69, 0.25) : rgba(220, 53, 69, 0.15))
+                        : (ThemeManager.is-dark ? rgba(220, 53, 69, 0.12) : rgba(220, 53, 69, 0.06));
+                    border-radius: 6px;
+
+                    Text {
+                        text: "🗑";
+                        font-size: 14px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    trash-btn-ta := TouchArea {
+                        width: 100%;
+                        height: 100%;
+                        clicked => {
+                            root.delete-mode = !root.delete-mode;
+                            root.new-folder-input = false;
+                            root.new-folder-name = "";
+                        }
+                    }
+                }
+
+                // 新建文件夹输入框 (+ 展开时显示)
+                if root.new-folder-input: Rectangle {
+                    width: 160px;
+                    height: 32px;
+                    background: ThemeManager.is-dark ? rgba(255, 255, 255, 0.08) : rgba(0, 0, 0, 0.04);
+                    border-radius: 6px;
+                    border-width: 1px;
+                    border-color: ThemeManager.is-dark ? rgba(0, 120, 212, 0.5) : rgba(0, 120, 212, 0.4);
+
+                    folder-input := TextInput {
+                        x: 8px;
+                        width: 144px;
+                        height: 100%;
+                        text <=> root.new-folder-name;
+                        color: ThemeManager.is-dark ? #e0e0e0 : #333333;
+                        font-size: 13px;
+                        vertical-alignment: center;
+                        accepted => {
+                            if root.new-folder-name != "" {
+                                root.create-favorite-folder(root.new-folder-name);
+                                root.new-folder-name = "";
+                                root.new-folder-input = false;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ===== 列表区域 =====
+        ScrollView {
+            VerticalLayout {
+                spacing: 0px;
+
+                // 顶部占位 —— 使第一项与工具栏爱心按钮水平对齐
+                Rectangle {
+                    height: 144px;
+                    background: transparent;
+                }
+
+                // 收藏夹列表
+                for item[idx] in root.favorite-items: Rectangle {
+                    min-height: 36px;
+                    background: ta.has-hover
+                        ? (ThemeManager.is-dark ? rgba(255, 255, 255, 0.06) : rgba(0, 0, 0, 0.04))
+                        : transparent;
+
+                    HorizontalLayout {
+                        padding-left: 16px;
+                        padding-right: 16px;
+                        padding-top: 8px;
+                        padding-bottom: 8px;
+                        spacing: 8px;
+
+                        // 文件夹图标
+                        Rectangle {
+                            width: 22px;
+                            height: 22px;
+                            background: transparent;
+
+                            Text {
+                                text: "📁";
+                                font-size: 14px;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                        }
+
+                        // 文件夹名
+                        Text {
+                            text: item.name;
+                            color: ThemeManager.is-dark ? #e0e0e0 : #333333;
+                            font-size: 13px;
+                            vertical-alignment: center;
+                        }
+
+                        Rectangle { horizontal-stretch: 1; }
+
+                        // 条目数
+                        Text {
+                            text: "" + item.count;
+                            color: ThemeManager.is-dark ? rgba(255, 255, 255, 0.45) : rgba(0, 0, 0, 0.4);
+                            font-size: 11px;
+                            vertical-alignment: center;
+                        }
+
+                        // 删除按钮 (删除模式)
+                        if root.delete-mode: Rectangle {
+                            width: 24px;
+                            height: 24px;
+                            background: del-btn-ta.has-hover
+                                ? rgba(220, 53, 69, 0.15)
+                                : transparent;
+                            border-radius: 4px;
+
+                            Text {
+                                text: "✕";
+                                color: #dc3545;
+                                font-size: 14px;
+                                font-weight: 600;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+
+                            del-btn-ta := TouchArea {
+                                width: 100%;
+                                height: 100%;
+                                clicked => {
+                                    root.delete-favorite-folder(idx);
+                                }
+                            }
+                        }
+
+                        // 右箭头 (普通模式)
+                        if !root.delete-mode: Text {
+                            text: ">";
+                            color: ThemeManager.is-dark ? rgba(255, 255, 255, 0.25) : rgba(0, 0, 0, 0.25);
+                            font-size: 12px;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    ta := TouchArea {
+                        width: 100%;
+                        height: 100%;
+                        clicked => {
+                            if root.delete-mode {
+                                // 删除模式：点击即删除
+                                root.delete-favorite-folder(idx);
+                            } else if root.dragging-text != "" {
+                                // 拖拽模式：添加到该收藏夹
+                                root.add-to-favorite(idx);
+                            } else {
+                                // 普通模式：进入该收藏夹查看内容
+                                root.load-favorite-folder(idx);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

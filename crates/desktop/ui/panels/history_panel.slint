@@ -1,114 +1,395 @@
 import { ThemeManager } from "../themes.slint";
 import { ListView } from "std-widgets.slint";
+import { ContentKind, ClipboardEntryData } from "../types.slint";
+import { SearchBox } from "../widgets/search_box.slint";
 
 export component HistoryPanel {
     in property <[string]> clipboard-history;
+    in property <[string]> clipboard-timestamps;
+    in property <[ClipboardEntryData]> clipboard-entries;
     in-out property <bool> is-scrolling: false;
     in-out property <int> last-visible-index: 0;
+    in-out property <bool> is-dragging: false;
+    in-out property <int> dragging-index: -1;
+    in-out property <bool> favorite-list-visible: false;
+    // 拖拽时鼠标的窗口坐标（由 Rust 侧 GetCursorPos 轮询更新）
+    in-out property <length> mouse-window-x: 0px;
+    in-out property <length> mouse-window-y: 0px;
+    // hover 刷新计数器：每次变化时强制重置当前 hover index
+    in-out property <int> hover-refresh-tick: 0;
+    // 收藏夹文件夹视图
+    in property <int> current-favorite-folder: -1;
+    in property <string> current-favorite-folder-name: "";
+    // 多选模式
+    in-out property <bool> multi-select-mode: false;
+    in property <[bool]> selected-states;
+    in property <[string]> multi-select-texts;
+    in property <int> selected-count: 0;
+    // 搜索
+    in-out property <string> search-query: "";
+    in property <bool> has-search-results: true;
+    // 上一次的 tick 值，用于检测变化
+    property <int> _last-tick: -1;
+    changed hover-refresh-tick => {
+        if (root.hover-refresh-tick != _last-tick) {
+            _last_tick = root.hover-refresh-tick;
+            root.set-hovered-index(-1);
+        }
+    }
     callback copy-item(index: int);
     callback set-hovered-index(index: int);
-    callback show-copy-toast();
+    callback drag-over-favorite-button();
+    callback end-drag-to-favorite();
+    callback cancel-drag-to-favorite();
+    callback drag-out-started(index: int);
+    callback back-to-all-history();
+    callback toggle-multi-select(index: int);
+    callback toggle-selection(index: int);
+    callback clear-multi-select();
+    callback search-changed(query: string);
 
-    VerticalLayout {
-        spacing: 0px;
-        
-        // Scroll position reset timer
-        Timer {
-            interval: 500ms;
-            running: root.is-scrolling;
-            triggered => {
-                root.is-scrolling = false;
-            }
-        }
-        
-        // Clipboard history list
-        list-view := ListView {
-            vertical-stretch: 1;
-            
-            for item[index] in root.clipboard-history: Rectangle {
-                property <length> item-font-size: 13px;
-                property <length> item-line-height: 18px;
-
-                height: Math.min(
-                    Math.max(item-text-layout.preferred-height + 24px,
-                    item-line-height * 1 + 24px),
-                    item-line-height * 6 + 24px
-                );
-
-                background: ta.pressed ? (ThemeManager.is-dark ? rgba(120, 120, 120, 0.8) : rgba(220, 220, 220, 0.95)) :
-                            (ta.has-hover ? (ThemeManager.is-dark ? rgba(90, 90, 90, 0.6) : rgba(240, 240, 240, 0.9)) :
-                            (ThemeManager.is-dark ? rgba(61, 61, 61, 0.4) : rgba(255, 255, 255, 0.8)));
-
-                // 背景动画
-                animate background {
-                    duration: 30ms;
+    FocusScope {
+        key-pressed(ev) => {
+            // Escape 键退出多选模式
+            if ev.text == "" || ev.text == "" {
+                if root.multi-select-mode {
+                    root.clear-multi-select();
                 }
+            }
+            // 可打印字符：聚焦到搜索框并输入
+            if ev.text != "" && ev.text != "" && ev.text != "" && !root.multi-select-mode {
+                search-box.set-focus();
+            }
+            return accept;
+        }
 
-                property <bool> _item_was_moved: false;
-                property <length> _press_x: 0px;
-                property <length> _press_y: 0px;
-                ta := TouchArea {
-                    pointer-event(ev) => {
-                        if ev.kind == PointerEventKind.down {
-                            _item_was_moved = false;
-                            _press_x = ta.mouse-x;
-                            _press_y = ta.mouse-y;
-                        } else if ev.kind == PointerEventKind.move && ta.pressed {
-                            if (ta.mouse-x - _press_x).abs() > 8px || (ta.mouse-y - _press_y).abs() > 8px {
-                                _item_was_moved = true;
+        VerticalLayout {
+            spacing: 0px;
+
+            // 收藏夹文件夹视图头部
+            if root.current-favorite-folder >= 0: Rectangle {
+                min-height: 36px;
+                background: ThemeManager.is-dark ? rgba(0, 120, 212, 0.15) : rgba(0, 120, 212, 0.08);
+
+                HorizontalLayout {
+                    padding-left: 8px;
+                    padding-right: 12px;
+                    spacing: 6px;
+
+                    // 返回箭头
+                    back-btn := Rectangle {
+                        width: 28px;
+                        height: 28px;
+                        background: back-btn-ta.has-hover
+                            ? (ThemeManager.is-dark ? rgba(255, 255, 255, 0.1) : rgba(0, 0, 0, 0.06))
+                            : transparent;
+                        border-radius: 4px;
+
+                        Text {
+                            text: "←";
+                            color: #0078d4;
+                            font-size: 16px;
+                            font-weight: 600;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        back-btn-ta := TouchArea {
+                            width: 100%;
+                            height: 100%;
+                            clicked => {
+                                root.back-to-all-history();
                             }
                         }
                     }
-                    clicked => {
-                        if (!_item_was_moved) {
-                            root.copy-item(index);
-                            root.show-copy-toast();
+
+                    Text {
+                        text: "收藏夹 > " + root.current-favorite-folder-name;
+                        color: #0078d4;
+                        font-size: 13px;
+                        font-weight: 500;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
+            // 多选模式提示栏（带高度动画）
+            Rectangle {
+                height: root.multi-select-mode ? 48px : 0px;
+                clip: true;
+                background: ThemeManager.is-dark ? rgba(0, 120, 212, 0.2) : rgba(0, 120, 212, 0.1);
+
+                animate height {
+                    duration: 200ms;
+                    easing: ease-out-quad;
+                }
+
+                // 顶栏内容
+                HorizontalLayout {
+                    padding-left: 14px;
+                    padding-right: 14px;
+                    spacing: 10px;
+                    height: 48px;
+
+                    Text {
+                        text: "多选模式";
+                        color: #0078d4;
+                        font-size: 14px;
+                        font-weight: 600;
+                        vertical-alignment: center;
+                    }
+
+                    // 选中数量
+                    selected-count-text := Text {
+                        text: "已选 " + root.selected-count + " 项";
+                        color: ThemeManager.is-dark ? rgba(255, 255, 255, 0.7) : rgba(0, 0, 0, 0.55);
+                        font-size: 12px;
+                        vertical-alignment: center;
+                    }
+
+                    Rectangle { horizontal-stretch: 1; }
+
+                    // 退出多选按钮
+                    exit-multi-select-btn := Rectangle {
+                        width: 70px;
+                        height: 28px;
+                        background: exit-ta.has-hover
+                            ? (ThemeManager.is-dark ? rgba(220, 53, 69, 0.25) : rgba(220, 53, 69, 0.15))
+                            : (ThemeManager.is-dark ? rgba(220, 53, 69, 0.12) : rgba(220, 53, 69, 0.06));
+                        border-radius: 6px;
+                        border-width: 1px;
+                        border-color: ThemeManager.is-dark ? rgba(220, 53, 69, 0.4) : rgba(220, 53, 69, 0.3);
+
+                        Text {
+                            text: "退出";
+                            color: #dc3545;
+                            font-size: 12px;
+                            font-weight: 600;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        exit-ta := TouchArea {
+                            width: 100%;
+                            height: 100%;
+                            clicked => {
+                                root.clear-multi-select();
+                            }
                         }
                     }
                 }
+            }
 
-                // Simply report hover state to window-level tracker
-                property <bool> is-hovering: ta.has-hover;
-                property <bool> was-hovering: false;
+            property <int> _scroll_tick: 0;
+            property <int> _last_tick: 0;
 
-                Timer {
-                    interval: 20ms;
-                    running: is-hovering || was-hovering;
-                    triggered => {
-                        if (is-hovering && !was-hovering) {
-                            root.set-hovered-index(index);
-                        } else if (!is-hovering && was-hovering) {
-                            root.set-hovered-index(-1);
+            // Debounce: timer fires 300ms after last scroll event
+            Timer {
+                interval: 300ms;
+                running: root.is-scrolling;
+                triggered => {
+                    if _scroll_tick == _last_tick {
+                        root.is-scrolling = false;
+                    } else {
+                        _last_tick = _scroll_tick;
+                    }
+                }
+            }
+
+            // Clipboard history list
+            list-view := ListView {
+                vertical-stretch: 1;
+
+                scrolled => {
+                    root.is-scrolling = true;
+                    _scroll_tick += 1;
+                }
+
+                // ============================================================
+                // 统一渲染: 文本 + 图片 (folder view 走 favorite-folder-entries,主历史走 clipboard-entries,均为 ClipboardEntryData)
+                // ============================================================
+                for entry[index] in root.clipboard-entries: entry-rect := Rectangle {
+                        property <bool> is-image: entry.content-kind == ContentKind.Image;
+                        property <length> item-font-size: 13px;
+                        property <length> item-line-height: 18px;
+
+                        // 选中状态
+                        property <bool> is-selected: root.multi-select-mode && index < root.selected-states.length && root.selected-states[index];
+
+                        // 高度: 图片固定 144px (12+120+12), 文本按内容
+                        height: is-image ? 144px : Math.min(
+                            Math.max(entry-text-layout.preferred-height + 24px,
+                            item-line-height * 1 + 24px),
+                            item-line-height * 6 + 24px
+                        );
+
+                        // 背景
+                        background: root.is-dragging && root.dragging-index == index
+                            ? (ThemeManager.is-dark ? rgba(0, 120, 212, 0.3) : rgba(0, 120, 212, 0.15))
+                            : (is-selected
+                                ? (ThemeManager.is-dark ? rgba(0, 120, 212, 0.18) : rgba(0, 120, 212, 0.1))
+                                : (ta.pressed ? (ThemeManager.is-dark ? rgba(120, 120, 120, 0.8) : rgba(220, 220, 220, 0.95)) :
+                                  (ta.has-hover ? (ThemeManager.is-dark ? rgba(90, 90, 90, 0.6) : rgba(240, 240, 240, 0.9)) :
+                                  (ThemeManager.is-dark ? rgba(61, 61, 61, 0.4) : rgba(255, 255, 255, 0.8)))));
+
+                        animate background { duration: 30ms; }
+
+                        // 选中条
+                        if is-selected: Rectangle {
+                            x: 0px; y: 0px; width: 3px; height: 100%; background: #0078d4;
                         }
-                        was-hovering = is-hovering;
+
+                        property <bool> _item_was_moved: false;
+                        property <length> _press_x: 0px;
+                        property <length> _press_y: 0px;
+                        ta := TouchArea {
+                            mouse-cursor: MouseCursor.default;
+                            pointer-event(ev) => {
+                                if ev.kind == PointerEventKind.down {
+                                    _item_was_moved = false;
+                                    _press_x = ta.mouse-x;
+                                    _press_y = ta.mouse-y;
+
+                                    // 图片暂不支持多选
+                                    if !is-image && ev.modifiers.shift && ev.button == PointerEventButton.left {
+                                        _item_was_moved = true;
+                                        root.toggle-multi-select(index);
+                                        return;
+                                    }
+                                } else if ev.kind == PointerEventKind.move && ta.pressed {
+                                    if (ta.mouse-x - _press_x).abs() > 3px || (ta.mouse-y - _press_y).abs() > 3px {
+                                        if !_item_was_moved {
+                                            _item_was_moved = true;
+                                            root.is-dragging = true;
+                                            root.dragging-index = index;
+                                            // 图片拖出 (phase 4) 暂不实现
+                                            if !is-image {
+                                                root.drag-out-started(index);
+                                            }
+                                        }
+                                    }
+                                } else if ev.kind == PointerEventKind.up {
+                                    if !_item_was_moved && root.multi-select-mode && !is-image {
+                                        root.toggle-selection(index);
+                                        return;
+                                    }
+                                    if root.is-dragging && root.dragging-index == index {
+                                        root.is-dragging = false;
+                                        root.dragging-index = -1;
+                                    }
+                                } else if ev.kind == PointerEventKind.cancel { }
+                            }
+                            clicked => {
+                                if (!_item_was_moved) {
+                                    root.copy-item(index);
+                                }
+                            }
+                        }
+
+                        property <bool> is-hovering: ta.has-hover;
+                        property <bool> was-hovering: false;
+
+                        Timer {
+                            interval: 20ms;
+                            running: is-hovering || was-hovering;
+                            triggered => {
+                                if (is-hovering && !was-hovering) {
+                                    root.set-hovered-index(index);
+                                } else if (!is-hovering && was-hovering) {
+                                    root.set-hovered-index(-1);
+                                }
+                                was-hovering = is-hovering;
+                            }
+                        }
+
+                        property <bool> is_last_visible:
+                            self.y + self.height >= list-view.visible-height - list-view.viewport-y
+                            && self.y < list-view.visible-height - list-view.viewport-y;
+
+                        changed is_last_visible => {
+                            if is_last_visible {
+                                root.last-visible-index = index;
+                            }
+                        }
+
+                        // 底部分隔横线
+                        Rectangle {
+                            y: parent.height - 1px;
+                            height: 1px;
+                            x: 12px;
+                            width: parent.width - 24px;
+                            background: ThemeManager.is-dark ? rgba(80, 80, 80, 0.4) : rgba(220, 220, 220, 0.8);
+                        }
+
+                        // === 文本裁切容器 (仅文本时显示) ===
+                        Rectangle {
+                            y: 12px;
+                            height: parent.height - 24px;
+                            clip: true;
+                            visible: !is-image;
+
+                            entry-text-layout := Text {
+                                text: entry.text;
+                                color: ThemeManager.is-dark ? #ffffff : #1a1a1a;
+                                font-size: item-font-size;
+                                font-weight: 300;
+                                wrap: word-wrap;
+                                width: parent.width - 24px;
+                                x: 12px;
+                                y: 0;
+                            }
+                        }
+
+                        // === 图片容器 (仅图片时显示) ===
+                        if is-image: Rectangle {
+                            x: 12px;
+                            y: 12px;
+                            width: parent.width - 24px;
+                            height: 120px;
+
+                            Image {
+                                source: entry.image;
+                                width: 100%;
+                                height: 100%;
+                                image-fit: contain;
+                            }
+
+                            // 右下角信息: 尺寸 + 大小
+                            Text {
+                                x: parent.width - self.width - 6px;
+                                y: parent.height - self.height - 4px;
+                                text: entry.width + "x" + entry.height + " · " + Math.round(entry.file-size / 1024) + "KB";
+                                color: ThemeManager.is-dark ? rgba(255, 255, 255, 0.7) : rgba(0, 0, 0, 0.55);
+                                font-size: 10px;
+                            }
+                        }
+                    }
+            }
+
+            // 底部搜索栏
+            Rectangle {
+                height: 40px;
+                background: ThemeManager.is-dark ? rgba(30, 30, 30, 0.9) : rgba(248, 248, 248, 0.9);
+
+                search-box := SearchBox {
+                    query <=> root.search-query;
+                    query-changed(new-query) => {
+                        root.search-changed(new-query);
                     }
                 }
+            }
 
-                // 底部分隔横线
-                Rectangle {
-                    y: parent.height - 1px;
-                    height: 1px;
-                    x: 12px;
-                    width: parent.width - 24px;
-                    background: ThemeManager.is-dark ? rgba(80, 80, 80, 0.4) : rgba(220, 220, 220, 0.8);
-                }
+            // 无搜索结果提示
+            if !root.has-search-results && root.search-query != "": Rectangle {
+                height: 60px;
+                background: transparent;
 
-                // 文字裁切容器
-                Rectangle {
-                    y: 12px;
-                    height: parent.height - 24px;
-                    clip: true;
-
-                    item-text-layout := Text {
-                        text: item;
-                        color: ThemeManager.is-dark ? #ffffff : #1a1a1a;
-                        font-size: item-font-size;
-                        font-weight: 300;
-                        wrap: word-wrap;
-                        width: parent.width - 24px;
-                        x: 12px;
-                        y: 0;
-                    }
+                Text {
+                    text: "未找到匹配结果";
+                    color: ThemeManager.is-dark ? rgba(255, 255, 255, 0.5) : rgba(0, 0, 0, 0.45);
+                    font-size: 13px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
                 }
             }
         }

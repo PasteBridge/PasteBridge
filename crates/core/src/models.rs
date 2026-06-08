@@ -22,3 +22,11 @@ pub struct ClipboardItem {
     pub created_at: i64,
     pub is_favorite: bool,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FavoriteFolder {
+    pub id: i64,
+    pub name: String,
+    pub sort_order: i32,
+    pub created_at: i64,
+}
