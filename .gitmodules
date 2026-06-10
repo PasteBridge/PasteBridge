@@ -1,3 +1,4 @@
 [submodule "slint"]
 	path = slint
-	url = https://github.com/slint-ui/slint.git
+	url = https://github.com/PasteBridge/slint.git
+	branch = master
