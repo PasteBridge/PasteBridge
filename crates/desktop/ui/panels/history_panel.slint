@@ -7,7 +7,6 @@ export component HistoryPanel {
     in property <[string]> clipboard-history;
     in property <[string]> clipboard-timestamps;
     in property <[ClipboardEntryData]> clipboard-entries;
-    in-out property <bool> is-scrolling: false;
     in-out property <int> last-visible-index: 0;
     in-out property <bool> is-dragging: false;
     in-out property <int> dragging-index: -1;
@@ -28,14 +27,35 @@ export component HistoryPanel {
     // 搜索
     in-out property <string> search-query: "";
     in property <bool> has-search-results: true;
+    // 当前鼠标悬浮的项索引（-1 表示无）
+    in-out property <int> hovered-index: -1;
+    // 悬浮项的展示文本（实时显示在搜索框）
+    in-out property <string> hovered-display: "";
+    // 悬浮项的内容类型标识（CF_TEXT / CF_DIB）
+    in-out property <string> hovered-content-kind: "";
+    // 悬浮项的次序（如 3/15）
+    in-out property <string> hovered-time-order: "";
+    // 来自 popup tooltip 的内容与时间戳（高优先级显示）
+    in-out property <string> tooltip-text: "";
+    in-out property <string> tooltip-timestamp: "";
     // 上一次的 tick 值，用于检测变化
     property <int> _last-tick: -1;
-    changed hover-refresh-tick => {
-        if (root.hover-refresh-tick != _last-tick) {
-            _last_tick = root.hover-refresh-tick;
-            root.set-hovered-index(-1);
-        }
-    }
+    // 拖拽时跟随鼠标的文本虚影内容
+    in property <string> dragging-text: "";
+    // 图片懒加载: 可见范围
+    in-out property <int> visible-start-index: 0;
+    in-out property <int> visible-end-index: 0;
+    // 滚动防抖: 上次已触发加载的范围,避免快速滚动时重复触发
+    property <int> _loaded-start: -1;
+    property <int> _loaded-end: -1;
+    // 图片懒加载防抖状态 (由布局内 timer 使用)
+    property <bool> _image-load-pending: false;
+    property <int> _pending-load-start: -1;
+    property <int> _pending-load-end: -1;
+    // 滚动到顶部触发属性
+    in-out property <bool> scroll-to-top: false;
+    // 复制动画触发属性
+    in-out property <bool> copy-animation-trigger: false;
     callback copy-item(index: int);
     callback set-hovered-index(index: int);
     callback drag-over-favorite-button();
@@ -47,17 +67,42 @@ export component HistoryPanel {
     callback toggle-selection(index: int);
     callback clear-multi-select();
     callback search-changed(query: string);
+    callback load-visible-images(start-index: int, end-index: int);
+
+    // 悬浮项变化时，构造底栏三栏信息
+    //   左侧：内容类型标识（CF_TEXT / CF_DIB）
+    //   中间：时间戳
+    //   右边：次序（序号/总数）
+    changed hovered-index => {
+        if root.hovered-index >= 0 && root.hovered-index < root.clipboard-history.length {
+            let ts = root.clipboard-timestamps[root.hovered-index];
+            let counter = (root.hovered-index + 1) + "/" + root.clipboard-history.length;
+            // 时间戳展示在中间
+            root.hovered-display = ts;
+            // 次序展示在右边
+            root.hovered-time-order = counter;
+            // 根据内容类型确定左侧标识
+            if root.hovered-index < root.clipboard-entries.length {
+                root.hovered-content-kind = root.clipboard-entries[root.hovered-index].content-kind == ContentKind.Image ? "CF_DIB" : "CF_TEXT";
+            }
+        } else {
+            root.hovered-display = "";
+            root.hovered-content-kind = "";
+            root.hovered-time-order = "";
+        }
+    }
 
     FocusScope {
         key-pressed(ev) => {
             // Escape 键退出多选模式
-            if ev.text == "" || ev.text == "" {
+            if ev.text == "" {
                 if root.multi-select-mode {
                     root.clear-multi-select();
                 }
             }
-            // 可打印字符：聚焦到搜索框并输入
-            if ev.text != "" && ev.text != "" && ev.text != "" && !root.multi-select-mode {
+            // 可打印字符：直接追加到搜索查询并聚焦搜索框
+            if ev.text != "" && !root.multi-select-mode {
+                root.search-query += ev.text;
                 search-box.set-focus();
             }
             return accept;
@@ -115,7 +160,7 @@ export component HistoryPanel {
 
             // 多选模式提示栏（带高度动画）
             Rectangle {
-                height: root.multi-select-mode ? 48px : 0px;
+                height: root.multi-select-mode ? 40px : 0px;
                 clip: true;
                 background: ThemeManager.is-dark ? rgba(0, 120, 212, 0.2) : rgba(0, 120, 212, 0.1);
 
@@ -126,10 +171,10 @@ export component HistoryPanel {
 
                 // 顶栏内容
                 HorizontalLayout {
-                    padding-left: 14px;
-                    padding-right: 14px;
+                    padding-left: 12px;
+                    padding-right: 12px;
                     spacing: 10px;
-                    height: 48px;
+                    height: 40px;
 
                     Text {
                         text: "多选模式";
@@ -151,7 +196,7 @@ export component HistoryPanel {
 
                     // 退出多选按钮
                     exit-multi-select-btn := Rectangle {
-                        width: 70px;
+                        width: 64px;
                         height: 28px;
                         background: exit-ta.has-hover
                             ? (ThemeManager.is-dark ? rgba(220, 53, 69, 0.25) : rgba(220, 53, 69, 0.15))
@@ -180,29 +225,64 @@ export component HistoryPanel {
                 }
             }
 
-            property <int> _scroll_tick: 0;
-            property <int> _last_tick: 0;
-
-            // Debounce: timer fires 300ms after last scroll event
+            // 滚动到顶部定时器
+            // 修复：
+            //   1) 原 50ms 过短，ListView 还没完成模型更新后的重布局，
+            //      viewport-y = 0 被新模型重新映射到非零位置 → 离顶部有偏移
+            //   2) 之前用过的"二级 50ms 强制再滚"会导致 ListView 内部状态机
+            //      被连续两次 viewport-y = 0 触发卡死，无法向下拖动
+            // 改用 100ms 单级延迟，仅触发一次 viewport-y = 0，避免连续强制
+            // 写入导致 ListView 状态异常。
             Timer {
-                interval: 300ms;
-                running: root.is-scrolling;
+                interval: 100ms;
+                running: root.scroll-to-top;
                 triggered => {
-                    if _scroll_tick == _last_tick {
-                        root.is-scrolling = false;
-                    } else {
-                        _last_tick = _scroll_tick;
-                    }
+                    list-view.viewport-y = 0px;
+                    root.scroll-to-top = false;
+                }
+            }
+
+            // 图片懒加载防抖: 滚动停止 150ms 后再触发 Rust 侧加载
+            Timer {
+                interval: 150ms;
+                running: root._image-load-pending;
+                triggered => {
+                    root._image-load-pending = false;
+                    root._loaded-start = root._pending-load-start;
+                    root._loaded-end = root._pending-load-end;
+                    root.load-visible-images(root._pending-load-start, root._pending-load-end);
                 }
             }
 
             // Clipboard history list
+            // 使用 Slint 原生 Material 风格滚动条(由 SLINT_STYLE=material 决定外观)
             list-view := ListView {
                 vertical-stretch: 1;
+                horizontal-stretch: 1;
+                horizontal-scrollbar-policy: ScrollBarPolicy.always-off;
+                vertical-scrollbar-policy: ScrollBarPolicy.as-needed;
 
                 scrolled => {
-                    root.is-scrolling = true;
-                    _scroll_tick += 1;
+                    // 一次性计算最后可见项索引(替代 per-item is_last_visible 求值，消除 N 次属性重算/帧)
+                    root.last-visible-index = Math.min(
+                        root.clipboard-entries.length - 1,
+                        Math.max(0, Math.floor((list-view.viewport-y + list-view.visible-height) / 144px))
+                    );
+
+                    // 图片懒加载: 检测可见区域并触发加载
+                    root.visible-start-index = Math.max(0, Math.floor(list-view.viewport-y / 144px) - 2);
+                    root.visible-end-index = Math.min(
+                        root.clipboard-entries.length - 1,
+                        Math.ceil((list-view.viewport-y + list-view.visible-height) / 144px) + 2
+                    );
+
+                    // 防抖: 只在可见范围显著变化时,标记待加载(由防抖 timer 统一触发)
+                    if root.visible-start-index != root._loaded-start
+                        || root.visible-end-index != root._loaded-end {
+                        root._pending-load-start = root.visible-start-index;
+                        root._pending-load-end = root.visible-end-index;
+                        root._image-load-pending = true;
+                    }
                 }
 
                 // ============================================================
@@ -210,20 +290,26 @@ export component HistoryPanel {
                 // ============================================================
                 for entry[index] in root.clipboard-entries: entry-rect := Rectangle {
                         property <bool> is-image: entry.content-kind == ContentKind.Image;
+                        // 文本样式:
+                        //   item-font-size = 实际字号 (Text 元素直接使用)
+                        //   Slint Text 没有 line-height,实际行高 = font-size × 1.2
+                        //   item-line-height = 容器 min/max 高度计算的参考值(不再等于实际行高)
                         property <length> item-font-size: 13px;
-                        property <length> item-line-height: 18px;
+                        property <length> item-line-height: 20.5px;
 
                         // 选中状态
                         property <bool> is-selected: root.multi-select-mode && index < root.selected-states.length && root.selected-states[index];
 
-                        // 高度: 图片固定 144px (12+120+12), 文本按内容
+                        // 高度: 图片固定 144px (12+120+12), 文本按 Text 自身 preferred-height 算
+                        //   上下 padding 22px (11 顶 + 11 底),至少 1 行,最多 5 行
                         height: is-image ? 144px : Math.min(
-                            Math.max(entry-text-layout.preferred-height + 24px,
-                            item-line-height * 1 + 24px),
-                            item-line-height * 6 + 24px
+                            Math.max(entry-text-layout.preferred-height + 22px,
+                            item-line-height * 1 + 22px),
+                            item-line-height * 5 + 22px
                         );
+                        clip: true;
 
-                        // 背景
+                        // 背景 - 直接切换，无动画
                         background: root.is-dragging && root.dragging-index == index
                             ? (ThemeManager.is-dark ? rgba(0, 120, 212, 0.3) : rgba(0, 120, 212, 0.15))
                             : (is-selected
@@ -232,16 +318,79 @@ export component HistoryPanel {
                                   (ta.has-hover ? (ThemeManager.is-dark ? rgba(90, 90, 90, 0.6) : rgba(240, 240, 240, 0.9)) :
                                   (ThemeManager.is-dark ? rgba(61, 61, 61, 0.4) : rgba(255, 255, 255, 0.8)))));
 
-                        animate background { duration: 30ms; }
+                        // 鼠标位置的背景 spotlight 高亮 (软光晕跟随鼠标)
+                        Rectangle {
+                            x: ta.mouse-x - 150px;
+                            y: ta.mouse-y - 150px;
+                            width: 300px;
+                            height: 300px;
+                            background: @radial-gradient(circle, rgba(0, 120, 212, 0.25) 0%, transparent 70%);
+                            opacity: ta.has-hover ? 1.0 : 0.0;
+                            animate opacity { duration: 150ms; easing: linear; }
+                        }
 
-                        // 选中条
-                        if is-selected: Rectangle {
-                            x: 0px; y: 0px; width: 3px; height: 100%; background: #0078d4;
+                        // 顶部水平边框: 跟随鼠标 x 移动，两端渐变 (颜色淡一点)
+                        Rectangle {
+                            x: 0px;
+                            y: 0px;
+                            width: 100%;
+                            height: 2px;
+                            background: transparent;
+
+                            property <length> seg-w: parent.width * 0.4;
+                            property <length> seg-x: clamp(
+                                ta.has-hover ? ta.mouse-x - seg-w / 2 : (parent.width - seg-w) / 2,
+                                0px,
+                                parent.width - seg-w
+                            );
+
+                            Rectangle {
+                                x: seg-x;
+                                y: 0px;
+                                width: seg-w;
+                                height: 2px;
+                                background: @linear-gradient(90deg, transparent 0%, rgba(0, 120, 212, 0.55) 50%, transparent 100%);
+                                opacity: (is-selected || (root.is-dragging && root.dragging-index == index))
+                                    ? 1.0
+                                    : (ta.has-hover ? 1.0 : 0.0);
+                                animate opacity { duration: 150ms; easing: ease-out; }
+                            }
+                        }
+
+                        // 底部水平边框 (同样效果)
+                        Rectangle {
+                            x: 0px;
+                            y: parent.height - 2px;
+                            width: 100%;
+                            height: 2px;
+                            background: transparent;
+
+                            property <length> seg-w: parent.width * 0.4;
+                            property <length> seg-x: clamp(
+                                ta.has-hover ? ta.mouse-x - seg-w / 2 : (parent.width - seg-w) / 2,
+                                0px,
+                                parent.width - seg-w
+                            );
+
+                            Rectangle {
+                                x: seg-x;
+                                y: 0px;
+                                width: seg-w;
+                                height: 2px;
+                                background: @linear-gradient(90deg, transparent 0%, rgba(0, 120, 212, 0.55) 50%, transparent 100%);
+                                opacity: (is-selected || (root.is-dragging && root.dragging-index == index))
+                                    ? 1.0
+                                    : (ta.has-hover ? 1.0 : 0.0);
+                                animate opacity { duration: 150ms; easing: ease-out; }
+                            }
                         }
 
                         property <bool> _item_was_moved: false;
                         property <length> _press_x: 0px;
                         property <length> _press_y: 0px;
+                        property <bool> _middle_scrolling: false;
+                        property <length> _middle_start_y: 0px;
+                        property <length> _middle_start_viewport: 0px;
                         ta := TouchArea {
                             mouse-cursor: MouseCursor.default;
                             pointer-event(ev) => {
@@ -250,6 +399,14 @@ export component HistoryPanel {
                                     _press_x = ta.mouse-x;
                                     _press_y = ta.mouse-y;
 
+                                    // 中键滚动开始
+                                    if ev.button == PointerEventButton.middle {
+                                        _middle_scrolling = true;
+                                        _middle_start_y = ta.mouse-y;
+                                        _middle_start_viewport = list-view.viewport-y;
+                                        return;
+                                    }
+
                                     // 图片暂不支持多选
                                     if !is-image && ev.modifiers.shift && ev.button == PointerEventButton.left {
                                         _item_was_moved = true;
@@ -257,6 +414,13 @@ export component HistoryPanel {
                                         return;
                                     }
                                 } else if ev.kind == PointerEventKind.move && ta.pressed {
+                                    // 中键滚动
+                                    if _middle_scrolling {
+                                        let delta = ta.mouse-y - _middle_start_y;
+                                        list-view.viewport-y = _middle_start_viewport + delta;
+                                        return;
+                                    }
+
                                     if (ta.mouse-x - _press_x).abs() > 3px || (ta.mouse-y - _press_y).abs() > 3px {
                                         if !_item_was_moved {
                                             _item_was_moved = true;
@@ -269,6 +433,12 @@ export component HistoryPanel {
                                         }
                                     }
                                 } else if ev.kind == PointerEventKind.up {
+                                    // 中键滚动结束
+                                    if ev.button == PointerEventButton.middle {
+                                        _middle_scrolling = false;
+                                        return;
+                                    }
+
                                     if !_item_was_moved && root.multi-select-mode && !is-image {
                                         root.toggle-selection(index);
                                         return;
@@ -277,7 +447,9 @@ export component HistoryPanel {
                                         root.is-dragging = false;
                                         root.dragging-index = -1;
                                     }
-                                } else if ev.kind == PointerEventKind.cancel { }
+                                } else if ev.kind == PointerEventKind.cancel {
+                                    _middle_scrolling = false;
+                                }
                             }
                             clicked => {
                                 if (!_item_was_moved) {
@@ -286,29 +458,15 @@ export component HistoryPanel {
                             }
                         }
 
+                        // 使用中间属性来监听 hover 状态变化
                         property <bool> is-hovering: ta.has-hover;
-                        property <bool> was-hovering: false;
-
-                        Timer {
-                            interval: 20ms;
-                            running: is-hovering || was-hovering;
-                            triggered => {
-                                if (is-hovering && !was-hovering) {
-                                    root.set-hovered-index(index);
-                                } else if (!is-hovering && was-hovering) {
-                                    root.set-hovered-index(-1);
-                                }
-                                was-hovering = is-hovering;
-                            }
-                        }
-
-                        property <bool> is_last_visible:
-                            self.y + self.height >= list-view.visible-height - list-view.viewport-y
-                            && self.y < list-view.visible-height - list-view.viewport-y;
-
-                        changed is_last_visible => {
-                            if is_last_visible {
-                                root.last-visible-index = index;
+                        changed is-hovering => {
+                            if is-hovering {
+                                root.set-hovered-index(index);
+                                root.hovered-index = index;
+                            } else {
+                                root.set-hovered-index(-1);
+                                root.hovered-index = -1;
                             }
                         }
 
@@ -322,21 +480,26 @@ export component HistoryPanel {
                         }
 
                         // === 文本裁切容器 (仅文本时显示) ===
+                        // 单个 Text + wrap: word-wrap,Slint 内置换行,跟窗口宽度自动重排
+                        // 实际行高 = font-size × 1.2,item-line-height 仅用于容器 min/max 高度计算
                         Rectangle {
-                            y: 12px;
-                            height: parent.height - 24px;
+                            y: 11px;
+                            height: parent.height - 22px;
                             clip: true;
                             visible: !is-image;
+                            opacity: root.is-dragging && root.dragging-index == index ? 0.35 : 1.0;
+                            animate opacity { duration: 100ms; easing: ease-out; }
 
                             entry-text-layout := Text {
+                                x: 12px;
+                                width: parent.width - 24px;
                                 text: entry.text;
-                                color: ThemeManager.is-dark ? #ffffff : #1a1a1a;
+                                color: #f1f1f3;
                                 font-size: item-font-size;
                                 font-weight: 300;
                                 wrap: word-wrap;
-                                width: parent.width - 24px;
-                                x: 12px;
-                                y: 0;
+                                vertical-alignment: top;
+                                overflow: clip;
                             }
                         }
 
@@ -366,15 +529,27 @@ export component HistoryPanel {
                     }
             }
 
-            // 底部搜索栏
+            // 底部搜索栏 —— 背景与 Toolbar 统一，顶部添加边框增强分隔
             Rectangle {
                 height: 40px;
-                background: ThemeManager.is-dark ? rgba(30, 30, 30, 0.9) : rgba(248, 248, 248, 0.9);
+                background: ThemeManager.is-dark ? rgba(0, 0, 0, 0.25) : rgba(255, 255, 255, 0.948);
+                border-width: 1px;
+                border-color: ThemeManager.is-dark ? rgba(255, 255, 255, 0.12) : rgba(0, 0, 0, 0.08);
 
-                search-box := SearchBox {
-                    query <=> root.search-query;
-                    query-changed(new-query) => {
-                        root.search-changed(new-query);
+                HorizontalLayout {
+                    spacing: 0px;
+
+                    search-box := SearchBox {
+                        horizontal-stretch: 1;
+                        query <=> root.search-query;
+                        query-changed(new-query) => {
+                            root.search-changed(new-query);
+                        }
+                        tooltip-text: root.tooltip-text;
+                        tooltip-timestamp: root.tooltip-timestamp;
+                        time-indicator: root.hovered-display;
+                        content-kind-label: root.hovered-content-kind;
+                        time-order: root.hovered-time-order;
                     }
                 }
             }
@@ -393,5 +568,31 @@ export component HistoryPanel {
                 }
             }
         }
+
+        // 拖拽文本虚影 - 跟随鼠标移动（在布局之外，使用绝对定位）
+        if root.is-dragging && root.dragging-text != "": Rectangle {
+                x: root.mouse-window-x + 12px;
+                y: root.mouse-window-y - 8px;
+                width: min(ghost-text.preferred-width + 24px, 280px);
+                height: min(ghost-text.preferred-height + 16px, 80px);
+                background: ThemeManager.is-dark ? rgba(26, 26, 26, 0.9) : rgba(255, 255, 255, 0.9);
+                border-radius: 8px;
+                border-width: 1px;
+                border-color: ThemeManager.is-dark ? rgba(255, 255, 255, 0.15) : rgba(0, 0, 0, 0.12);
+                opacity: 0.75;
+
+                ghost-text := Text {
+                    x: 12px;
+                    y: 8px;
+                    width: parent.width - 24px;
+                    text: root.dragging-text;
+                    color: ThemeManager.is-dark ? #e6e6e6 : #1a1a1a;
+                    font-size: 13px;
+                    font-weight: 300;
+                    wrap: word-wrap;
+                    max-height: 56px;
+                    overflow: clip;
+                }
+            }
     }
 }

@@ -19,8 +19,92 @@ export component ContextMenu inherits PopupWindow {
 
             Rectangle {
                 height: 32px;
-                background: transparent;
                 border-radius: 4px;
+                clip: true;
+
+                min-ta := TouchArea {
+                    width: 100%;
+                    height: 100%;
+                    clicked => {
+                        root.minimize-window();
+                        root.close();
+                    }
+                }
+
+                // hover 背景层
+                Rectangle {
+                    width: 100%;
+                    height: 100%;
+                    background: min-ta.has-hover
+                        ? (ThemeManager.is-dark ? rgba(0, 120, 212, 0.2) : rgba(0, 120, 212, 0.12))
+                        : transparent;
+                    border-radius: 4px;
+                }
+
+                // 鼠标位置背景 spotlight
+                Rectangle {
+                    x: min-ta.mouse-x - 100px;
+                    y: min-ta.mouse-y - 40px;
+                    width: 200px;
+                    height: 80px;
+                    background: @radial-gradient(circle, rgba(0, 120, 212, 0.25) 0%, transparent 70%);
+                    opacity: min-ta.has-hover ? 1.0 : 0.0;
+                    animate x { duration: 80ms; easing: ease-out; }
+                    animate y { duration: 80ms; easing: ease-out; }
+                    animate opacity { duration: 150ms; easing: ease-out; }
+                }
+
+                // 顶部水平边框: 跟随鼠标 x 移动，两端渐变
+                Rectangle {
+                    x: 0px;
+                    y: 0px;
+                    width: 100%;
+                    height: 2px;
+                    background: transparent;
+
+                    property <length> seg-w: parent.width * 0.4;
+                    property <length> seg-x: clamp(
+                        min-ta.has-hover ? min-ta.mouse-x - seg-w / 2 : (parent.width - seg-w) / 2,
+                        0px,
+                        parent.width - seg-w
+                    );
+
+                    Rectangle {
+                        x: seg-x;
+                        width: seg-w;
+                        height: 2px;
+                        background: @linear-gradient(90deg, transparent 0%, rgba(0, 120, 212, 0.55) 50%, transparent 100%);
+                        opacity: min-ta.has-hover ? 1.0 : 0.0;
+                        animate x { duration: 0ms; }
+                        animate opacity { duration: 150ms; easing: ease-out; }
+                    }
+                }
+
+                // 底部水平边框
+                Rectangle {
+                    x: 0px;
+                    y: parent.height - 2px;
+                    width: 100%;
+                    height: 2px;
+                    background: transparent;
+
+                    property <length> seg-w: parent.width * 0.4;
+                    property <length> seg-x: clamp(
+                        min-ta.has-hover ? min-ta.mouse-x - seg-w / 2 : (parent.width - seg-w) / 2,
+                        0px,
+                        parent.width - seg-w
+                    );
+
+                    Rectangle {
+                        x: seg-x;
+                        width: seg-w;
+                        height: 2px;
+                        background: @linear-gradient(90deg, transparent 0%, rgba(0, 120, 212, 0.55) 50%, transparent 100%);
+                        opacity: min-ta.has-hover ? 1.0 : 0.0;
+                        animate x { duration: 0ms; }
+                        animate opacity { duration: 150ms; easing: ease-out; }
+                    }
+                }
 
                 HorizontalLayout {
                     padding-left: 12px;
@@ -34,21 +118,96 @@ export component ContextMenu inherits PopupWindow {
                         vertical-alignment: center;
                     }
                 }
-
-                TouchArea {
-                    width: 100%;
-                    height: 100%;
-                    clicked => {
-                        root.minimize-window();
-                        root.close();
-                    }
-                }
             }
 
             Rectangle {
                 height: 32px;
-                background: transparent;
                 border-radius: 4px;
+                clip: true;
+
+                quit-ta := TouchArea {
+                    width: 100%;
+                    height: 100%;
+                    clicked => {
+                        root.quit-app();
+                        root.close();
+                    }
+                }
+
+                // hover 背景层
+                Rectangle {
+                    width: 100%;
+                    height: 100%;
+                    background: quit-ta.has-hover
+                        ? (ThemeManager.is-dark ? rgba(0, 120, 212, 0.2) : rgba(0, 120, 212, 0.12))
+                        : transparent;
+                    border-radius: 4px;
+                }
+
+                // 鼠标位置背景 spotlight
+                Rectangle {
+                    x: quit-ta.mouse-x - 100px;
+                    y: quit-ta.mouse-y - 40px;
+                    width: 200px;
+                    height: 80px;
+                    background: @radial-gradient(circle, rgba(0, 120, 212, 0.25) 0%, transparent 70%);
+                    opacity: quit-ta.has-hover ? 1.0 : 0.0;
+                    animate x { duration: 80ms; easing: ease-out; }
+                    animate y { duration: 80ms; easing: ease-out; }
+                    animate opacity { duration: 150ms; easing: ease-out; }
+                }
+
+                // 顶部水平边框: 跟随鼠标 x 移动，两端渐变
+                Rectangle {
+                    x: 0px;
+                    y: 0px;
+                    width: 100%;
+                    height: 2px;
+                    background: transparent;
+
+                    property <length> seg-w: parent.width * 0.4;
+                    property <length> seg-x: clamp(
+                        quit-ta.has-hover ? quit-ta.mouse-x - seg-w / 2 : (parent.width - seg-w) / 2,
+                        0px,
+                        parent.width - seg-w
+                    );
+
+                    Rectangle {
+                        x: seg-x;
+                        width: seg-w;
+                        height: 2px;
+                        background: @linear-gradient(90deg, transparent 0%, rgba(0, 120, 212, 0.55) 50%, transparent 100%);
+                        opacity: quit-ta.has-hover ? 1.0 : 0.0;
+                        animate x { duration: 0ms; }
+                        animate opacity { duration: 150ms; easing: ease-out; }
+                    }
+                }
+
+                // 底部水平边框
+                Rectangle {
+                    x: 0px;
+                    y: parent.height - 2px;
+                    width: 100%;
+                    height: 2px;
+                    background: transparent;
+
+                    property <length> seg-w: parent.width * 0.4;
+                    property <length> seg-x: clamp(
+                        quit-ta.has-hover ? quit-ta.mouse-x - seg-w / 2 : (parent.width - seg-w) / 2,
+                        0px,
+                        parent.width - seg-w
+                    );
+
+                    Rectangle {
+                        x: seg-x;
+                        width: seg-w;
+                        height: 2px;
+                        background: @linear-gradient(90deg, transparent 0%, rgba(0, 120, 212, 0.55) 50%, transparent 100%);
+                        opacity: quit-ta.has-hover ? 1.0 : 0.0;
+                        animate x { duration: 0ms; }
+                        animate opacity { duration: 150ms; easing: ease-out; }
+                    }
+                }
 
                 HorizontalLayout {
                     padding-left: 12px;
@@ -60,15 +219,6 @@ export component ContextMenu inherits PopupWindow {
                         font-size: 14px;
                         horizontal-alignment: left;
                         vertical-alignment: center;
-                    }
-                }
-
-                TouchArea {
-                    width: 100%;
-                    height: 100%;
-                    clicked => {
-                        root.quit-app();
-                        root.close();
                     }
                 }
             }

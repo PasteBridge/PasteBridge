@@ -1,30 +1,48 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::path::Path;
+use std::collections::HashMap;
+use std::sync::Mutex;
 use slint::ComponentHandle;
 use crate::AppWindow;
 use crate::ClipboardEntryData;
 use crate::ContentKind;
 use paste_bridge_core::models::ContentType;
-use image::GenericImageView;
 
 /// 防重入标记: 当 sync_history_to_ui_async 正在后台解码时,跳过后续的重复调用。
 /// 避免在快速连续复制时产生大量并发解码线程导致 CPU 满载。
 static SYNC_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
+
+/// 时间戳格式化缓存:
+/// key   = (id, created_at_ms, now_minute_bucket)
+/// value = 格式化好的相对时间字符串
+/// 相对时间在分钟粒度上是稳定的;通过缓存避免每次搜索重建 ListView 时
+/// 对相同条目反复执行 format_timestamp,降低搜索输入时的帧率抖动。
+static TIMESTAMP_CACHE: Mutex<Option<HashMap<(i64, i64, i64), String>>> = Mutex::new(None);
+
+fn format_timestamp_cached(id: i64, created_at_ms: i64) -> String {
+    use chrono::{DateTime, Local, TimeZone};
+    let now: DateTime<Local> = Local::now();
+    let minute_bucket = now.timestamp() / 60;
+    let key = (id, created_at_ms, minute_bucket);
+
+    let mut guard = TIMESTAMP_CACHE.lock().unwrap();
+    let cache = guard.get_or_insert_with(HashMap::new);
+    if let Some(v) = cache.get(&key) {
+        return v.clone();
+    }
+    let v = format_timestamp_inner(created_at_ms, &now);
+    cache.insert(key, v.clone());
+    v
+}
 
 #[derive(Clone)]
 pub struct ClipboardEntry {
     pub id: i64,
     pub content_type: ContentType,
     pub text: slint::SharedString,
-    pub image_path: Option<String>,  // 相对路径 "images/xxx.png",文本项 None
-}
-
-/// 后台解码好的图片数据,避免在 UI 线程调用 slint::Image::load_from_path
-struct DecodedImage {
-    width: u32,
-    height: u32,
-    rgba: Vec<u8>,
+    /// 图片项: 数据库 id (用于懒加载从 DB 读取 BLOB); 文本项: 0
+    pub image_id: i64,
 }
 
 pub fn truncate_for_display(text: &str, max_bytes: usize) -> slint::SharedString {
@@ -62,20 +80,21 @@ pub fn sync_history_to_ui(
         for item in &history {
             let ct = item.content_type.clone();
             let text = item.content_text.clone().unwrap_or_default();
-            let image_path = if matches!(ct, ContentType::Image) {
-                item.content_path.clone()
+            let image_id = if matches!(ct, ContentType::Image) {
+                item.id
             } else {
-                None
+                0
             };
             internal_entries.push(ClipboardEntry {
                 id: item.id,
                 content_type: ct,
                 text: text.into(),
-                image_path,
+                image_id,
             });
         }
 
         // === UI 列表数据: 文本 + 图片,统一为 ClipboardEntryData ===
+        // 图片按需懒加载: 此处只填充 image-id,实际解码由 load_visible_images 回调处理
         let ui_entries: Vec<ClipboardEntryData> = history.iter().map(|item| {
             let is_image = matches!(item.content_type, ContentType::Image);
             let kind = if is_image { ContentKind::Image } else { ContentKind::Text };
@@ -88,30 +107,14 @@ pub fn sync_history_to_ui(
                     .unwrap_or_default()
             };
 
-            // 图片: 加载到 slint::Image; 文本: 空 image (默认)
-            let image = if is_image {
-                item.content_path.as_ref()
-                    .map(|rel| {
-                        let abs = app_data_dir.join(rel);
-                        match slint::Image::load_from_path(&abs) {
-                            img @ Ok(_) => img.unwrap_or_default(),
-                            Err(_) => {
-                                eprintln!("[sync] skip corrupt PNG: {}", abs.display());
-                                slint::Image::default()
-                            }
-                        }
-                    })
-                    .unwrap_or_default()
-            } else {
-                slint::Image::default()
-            };
-
             ClipboardEntryData {
                 id: item.id as i32,
                 content_kind: kind,
                 text: text.into(),
-                image,
-                timestamp: format_timestamp(item.created_at).into(),
+                image: slint::Image::default(),
+                image_loaded: !is_image, // 文本标记为已加载,图片标记为未加载
+                image_id: if is_image { item.id as i32 } else { 0 },
+                timestamp: format_timestamp(item.id, item.created_at).into(),
                 width: item.width.unwrap_or(0) as i32,
                 height: item.height.unwrap_or(0) as i32,
                 file_size: item.file_size.unwrap_or(0) as i32,
@@ -123,7 +126,7 @@ pub fn sync_history_to_ui(
             .map(|e| e.text.clone())
             .collect();
         let timestamps: Vec<slint::SharedString> = history.iter()
-            .map(|item| format_timestamp(item.created_at).into())
+            .map(|item| format_timestamp(item.id, item.created_at).into())
             .collect();
 
         {
@@ -138,13 +141,21 @@ pub fn sync_history_to_ui(
         if trigger_animation {
             crate::animation::trigger_content_update_fade(w.as_weak());
         }
+
+        // 触发首屏可见区域的图片懒加载
+        let window_height = w.window().size().to_logical(w.window().scale_factor()).height;
+        let visible_count = (window_height / 144.0).ceil() as i32 + 2;
+        w.invoke_load_visible_images(0, visible_count.max(10));
+
+        // app_data_dir 不再被使用,保留参数以兼容调用方签名
+        let _ = app_data_dir;
     }
 }
 
 /// 异步版本: 在后台线程解码图片,仅模型更新在 UI 线程完成。
 ///
-/// 避免 `slint::Image::load_from_path` 在 UI 线程上同步解码多个 PNG
-/// (尤其是大图如 3026×1806)导致的界面卡顿。
+/// 优化: 第一阶段快速加载所有元数据(文本+图片id),第二阶段按需解码图片。
+/// 避免初始加载时解码所有图片导致的卡顿。
 pub fn sync_history_to_ui_async(
     weak: slint::Weak<AppWindow>,
     state: Arc<paste_bridge_core::state::AppState>,
@@ -159,27 +170,16 @@ pub fn sync_history_to_ui_async(
             return;
         }
 
-        // ── Phase 1: 后台线程 ── 查询 DB + 解码所有图片到 RGBA ──
-        let (internal_entries, ui_data) = {
-            // 读取排序方向(可以从 Slint handle 安全地读取属性)
+        // ── Phase 1: 快速加载元数据 ──
+        // 只加载文本和图片id,不解码图片,实现快速首屏渲染
+        let (internal_entries, ui_entries_metadata) = {
             let ascending = weak.upgrade()
                 .map(|w| w.get_sort_ascending())
                 .unwrap_or(false);
             let history = state.get_history(ascending);
 
             let mut internal_entries = Vec::with_capacity(history.len());
-            let mut ui_data: Vec<(
-                i64,
-                ContentType,
-                String,                // display text
-                slint::SharedString,   // full text for internal
-                Option<String>,        // image path
-                Option<DecodedImage>,
-                String,                // formatted timestamp
-                i32,                   // width
-                i32,                   // height
-                i32,                   // file_size
-            )> = Vec::with_capacity(history.len());
+            let mut ui_entries_metadata = Vec::with_capacity(history.len());
 
             for item in &history {
                 let is_image = matches!(item.content_type, ContentType::Image);
@@ -187,19 +187,15 @@ pub fn sync_history_to_ui_async(
                 let text = item.content_text.clone().unwrap_or_default();
 
                 // Internal entry
-                let image_path = if is_image {
-                    item.content_path.clone()
-                } else {
-                    None
-                };
+                let image_id = if is_image { item.id } else { 0 };
                 internal_entries.push(ClipboardEntry {
                     id: item.id,
                     content_type: ct.clone(),
                     text: text.clone().into(),
-                    image_path: image_path.clone(),
+                    image_id,
                 });
 
-                // UI entry text
+                // UI entry metadata (图片未加载)
                 let text_display = if is_image {
                     String::new()
                 } else {
@@ -208,119 +204,83 @@ pub fn sync_history_to_ui_async(
                         .unwrap_or_default()
                 };
 
-                // 在后台线程解码 PNG → RGBA bytes (优先加载缩略图)
-                let decoded = if is_image {
-                    item.content_path.as_ref().and_then(|rel| {
-                        // 缩略图路径: images/thumb_{hash}.png,不存在时回退到原图(向后兼容)
-                        let thumb_rel = rel.replace("images/", "images/thumb_");
-                        let thumb_abs = app_data_dir.join(&thumb_rel);
-                        let abs = if thumb_abs.exists() {
-                            thumb_abs
-                        } else {
-                            app_data_dir.join(rel)
-                        };
-                        match std::fs::read(&abs) {
-                            Ok(bytes) => {
-                                match image::load_from_memory(&bytes) {
-                                    Ok(img) => {
-                                        let (w, h) = img.dimensions();
-                                        let rgba = img.to_rgba8().to_vec();
-                                        Some(DecodedImage { width: w, height: h, rgba })
-                                    }
-                                    Err(e) => {
-                                        eprintln!("[sync] skip corrupt PNG: {} ({})", abs.display(), e);
-                                        None
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                eprintln!("[sync] can't read PNG: {} ({})", abs.display(), e);
-                                None
-                            }
-                        }
-                    })
-                } else {
-                    None
-                };
-
-                ui_data.push((
+                ui_entries_metadata.push((
                     item.id,
                     ct,
                     text_display,
-                    text.into(),
-                    image_path,
-                    decoded,
-                    format_timestamp(item.created_at),
+                    slint::SharedString::from(text.as_str()),
+                    format_timestamp(item.id, item.created_at),
                     item.width.unwrap_or(0) as i32,
                     item.height.unwrap_or(0) as i32,
                     item.file_size.unwrap_or(0) as i32,
                 ));
             }
 
-            (internal_entries, ui_data)
+            (internal_entries, ui_entries_metadata)
         };
 
-        // ── Phase 2: UI 线程 ── 创建 slint::Image 并更新模型 ──
+        // ── Phase 2: UI 线程更新 ──
+        // 创建空的 ClipboardEntryData,图片标记为未加载
         let _ = slint::invoke_from_event_loop(move || {
             let w = match weak.upgrade() {
                 Some(w) => w,
                 None => {
-                    // 窗口已销毁,释放防重入锁
                     SYNC_IN_PROGRESS.store(false, Ordering::SeqCst);
                     return;
                 },
             };
 
-            // 更新内部 entries (id → 内容映射,供 copy-item 使用)
+            // 更新内部 entries
             {
                 let mut lock = entries_lock.lock().unwrap();
                 *lock = internal_entries;
             }
 
-            // text_items: 全文(给 clipboard-history 旧视图)
-            let text_items: Vec<slint::SharedString> = ui_data.iter()
-                .map(|(_, _, _, ref full, _, _, _, _, _, _)| full.clone())
+            // 构建 UI entries (图片未加载)
+            let text_items: Vec<slint::SharedString> = ui_entries_metadata.iter()
+                .map(|(_, _, _, ref full, _, _, _, _)| full.clone())
                 .collect();
-            let timestamps: Vec<slint::SharedString> = ui_data.iter()
-                .map(|(_, _, _, _, _, _, ref ts, _, _, _)| slint::SharedString::from(ts.as_str()))
+            let timestamps: Vec<slint::SharedString> = ui_entries_metadata.iter()
+                .map(|(_, _, _, _, ref ts, _, _, _)| slint::SharedString::from(ts.as_str()))
                 .collect();
 
-            // 构建真正的 slint::Image (从预解码的 RGBA)
-            let ui_entries: Vec<ClipboardEntryData> = ui_data.into_iter().map(|(id, ct, text_display, _, _, decoded, timestamp, width, height, file_size)| {
-                let is_image = matches!(ct, ContentType::Image);
-                let kind = if is_image { ContentKind::Image } else { ContentKind::Text };
+            let ui_entries: Vec<ClipboardEntryData> = ui_entries_metadata.into_iter()
+                .map(|(id, ct, text_display, _, timestamp, width, height, file_size)| {
+                    let is_image = matches!(ct, ContentType::Image);
+                    let kind = if is_image { ContentKind::Image } else { ContentKind::Text };
 
-                let image = match decoded {
-                    Some(DecodedImage { width: w, height: h, rgba }) => {
-                        let buffer = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(&rgba, w, h);
-                        slint::Image::from_rgba8(buffer)
+                    ClipboardEntryData {
+                        id: id as i32,
+                        content_kind: kind,
+                        text: text_display.into(),
+                        image: slint::Image::default(), // 空图片,按需加载
+                        image_loaded: false,            // 标记为未加载
+                        image_id: if is_image { id as i32 } else { 0 },
+                        timestamp: timestamp.into(),
+                        width,
+                        height,
+                        file_size,
                     }
-                    None => slint::Image::default(),
-                };
-
-                ClipboardEntryData {
-                    id: id as i32,
-                    content_kind: kind,
-                    text: text_display.into(),
-                    image,
-                    timestamp: timestamp.into(),
-                    width,
-                    height,
-                    file_size,
-                }
-            }).collect();
+                })
+                .collect();
 
             w.set_clipboard_history(std::rc::Rc::new(slint::VecModel::from(text_items)).into());
             w.set_clipboard_timestamps(std::rc::Rc::new(slint::VecModel::from(timestamps)).into());
             w.set_clipboard_entries(std::rc::Rc::new(slint::VecModel::from(ui_entries)).into());
 
+            // 模型更新后立即触发可见区域图片加载,否则图片不会自动显示(需要滚动才会触发)
+            let window_height = w.window().size().to_logical(w.window().scale_factor()).height;
+            let visible_count = (window_height / 144.0).ceil() as i32 + 2;
+            w.invoke_load_visible_images(0, visible_count.max(10));
+
             if trigger_animation {
                 crate::animation::trigger_content_update_fade(w.as_weak());
             }
 
-            // 在 UI 更新真正完成后才释放防重入锁
             SYNC_IN_PROGRESS.store(false, Ordering::SeqCst);
         });
+
+        let _ = app_data_dir;
     });
 }
 
@@ -334,7 +294,7 @@ pub fn sync_search_to_ui(
 ) {
     if let Some(w) = weak.upgrade() {
         let ascending = w.get_sort_ascending();
-        
+
         // 如果查询为空，显示全部历史
         let history = if query.is_empty() {
             state.get_history(ascending)
@@ -350,20 +310,20 @@ pub fn sync_search_to_ui(
         for item in &history {
             let ct = item.content_type.clone();
             let text = item.content_text.clone().unwrap_or_default();
-            let image_path = if matches!(ct, ContentType::Image) {
-                item.content_path.clone()
+            let image_id = if matches!(ct, ContentType::Image) {
+                item.id
             } else {
-                None
+                0
             };
             internal_entries.push(ClipboardEntry {
                 id: item.id,
                 content_type: ct,
                 text: text.into(),
-                image_path,
+                image_id,
             });
         }
 
-        // === UI 列表数据 ===
+        // === UI 列表数据: 按需懒加载图片 ===
         let ui_entries: Vec<ClipboardEntryData> = history.iter().map(|item| {
             let is_image = matches!(item.content_type, ContentType::Image);
             let kind = if is_image { ContentKind::Image } else { ContentKind::Text };
@@ -376,29 +336,14 @@ pub fn sync_search_to_ui(
                     .unwrap_or_default()
             };
 
-            let image = if is_image {
-                item.content_path.as_ref()
-                    .map(|rel| {
-                        let abs = app_data_dir.join(rel);
-                        match slint::Image::load_from_path(&abs) {
-                            img @ Ok(_) => img.unwrap_or_default(),
-                            Err(_) => {
-                                eprintln!("[search] skip corrupt PNG: {}", abs.display());
-                                slint::Image::default()
-                            }
-                        }
-                    })
-                    .unwrap_or_default()
-            } else {
-                slint::Image::default()
-            };
-
             ClipboardEntryData {
                 id: item.id as i32,
                 content_kind: kind,
                 text: text.into(),
-                image,
-                timestamp: format_timestamp(item.created_at).into(),
+                image: slint::Image::default(),
+                image_loaded: !is_image, // 文本标记为已加载,图片标记为未加载
+                image_id: if is_image { item.id as i32 } else { 0 },
+                timestamp: format_timestamp(item.id, item.created_at).into(),
                 width: item.width.unwrap_or(0) as i32,
                 height: item.height.unwrap_or(0) as i32,
                 file_size: item.file_size.unwrap_or(0) as i32,
@@ -416,24 +361,30 @@ pub fn sync_search_to_ui(
             .map(|item| item.content_text.clone().unwrap_or_default().into())
             .collect();
         let timestamps: Vec<slint::SharedString> = history.iter()
-            .map(|item| format_timestamp(item.created_at).into())
+            .map(|item| format_timestamp(item.id, item.created_at).into())
             .collect();
 
         w.set_clipboard_history(std::rc::Rc::new(slint::VecModel::from(text_items)).into());
         w.set_clipboard_timestamps(std::rc::Rc::new(slint::VecModel::from(timestamps)).into());
         w.set_clipboard_entries(std::rc::Rc::new(slint::VecModel::from(ui_entries)).into());
+
+        // 触发首屏图片懒加载
+        let window_height = w.window().size().to_logical(w.window().scale_factor()).height;
+        let visible_count = (window_height / 144.0).ceil() as i32 + 2;
+        w.invoke_load_visible_images(0, visible_count.max(10));
+
+        let _ = app_data_dir;
     }
 }
 
 /// Format a relative time string from a Unix timestamp in **milliseconds**.
 ///
 /// Returns human-readable relative times like "刚刚", "5分钟前", "2小时前", "3天前".
-fn format_timestamp(created_at_ms: i64) -> String {
-    use chrono::{DateTime, Local, TimeZone};
-    let Some(dt) = Local.timestamp_millis_opt(created_at_ms).single() else {
+fn format_timestamp_inner(created_at_ms: i64, now: &chrono::DateTime<chrono::Local>) -> String {
+    use chrono::TimeZone;
+    let Some(dt) = chrono::Local.timestamp_millis_opt(created_at_ms).single() else {
         return String::new();
     };
-    let now: DateTime<Local> = Local::now();
     let diff = now.signed_duration_since(dt);
 
     if diff.num_minutes() < 1 {
@@ -448,3 +399,9 @@ fn format_timestamp(created_at_ms: i64) -> String {
         dt.format("%m-%d").to_string()
     }
 }
+
+/// 模块内时间戳格式化入口:走缓存,避免搜索重建 ListView 时重复格式化
+fn format_timestamp(id: i64, created_at_ms: i64) -> String {
+    format_timestamp_cached(id, created_at_ms)
+}
+

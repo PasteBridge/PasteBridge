@@ -1,4 +1,59 @@
 import { ThemeManager } from "../themes.slint";
+import { AnimationTokens } from "../animations.slint";
+
+// ── 可复用工具栏 Tooltip ──
+// 在 hover 时，从按钮左侧渐变滑入一个小方框提示功能
+export component ToolbarTooltip {
+    in property <string> text;
+    in property <bool> show;
+
+    width: 140px;
+    height: 26px;
+
+    container := Rectangle {
+        x: -self.width - 12px;
+        y: (parent.height - self.height) / 2;
+        width: 100%;
+        height: 100%;
+        opacity: 0.0;
+
+        // 渐变背景：左侧更饱和 → 右侧半透明，呈现"渐变出现"效果
+        background: @linear-gradient(90deg, #0078d4 0%, rgba(0, 120, 212, 0.45) 100%);
+        border-radius: 4px;
+        drop-shadow-color: rgba(0, 0, 0, 0.18);
+        drop-shadow-blur: 8px;
+        drop-shadow-offset-x: 2px;
+        drop-shadow-offset-y: 2px;
+
+        states [
+            visible when root.show: {
+                container.opacity: 1.0;
+                x: -self.width - 12px + 6px; // 向右滑入 6px
+                in {
+                    animate opacity { duration: AnimationTokens.tooltip-fade-in; easing: ease-out; }
+                    animate x { duration: AnimationTokens.tooltip-fade-in; easing: ease-out-quad; }
+                }
+                out {
+                    animate opacity { duration: AnimationTokens.tooltip-fade-out; easing: ease-in; }
+                    animate x { duration: AnimationTokens.tooltip-fade-out; easing: ease-in-quad; }
+                }
+            }
+        ]
+
+        tooltip-text := Text {
+            x: 8px;
+            y: 0px;
+            width: parent.width - 16px;
+            height: 100%;
+            text: root.text;
+            font-size: 12px;
+            color: white;
+            font-weight: 500;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+}
 
 export component Toolbar {
     in property <bool> settings-visible;
@@ -8,6 +63,8 @@ export component Toolbar {
     in property <bool> pinned: false;
     in property <length> mouse-window-x: 0px;
     in property <length> mouse-window-y: 0px;
+    // 工具栏模式: 0=主面板(历史记录), 1=同步面板
+    in property <int> mode: 0;
     callback start-drag();
     callback toggle-settings();
     callback clear-history();
@@ -20,12 +77,36 @@ export component Toolbar {
     callback drag-over-favorite-button();
     callback end-drag-to-favorite();
     callback cancel-drag-to-favorite();
+    // 同步面板专属
+    callback add-device();
+
+    // ── 模式切换渐变闪烁（列表项同款效果） ──
+    property <bool> _mode-shimmer: false;
+    property <int> _prev-mode: 0;
+
+    changed mode => {
+        if root._prev-mode != root.mode {
+            root._prev-mode = root.mode;
+            root._mode-shimmer = true;
+        }
+    }
+
+    // 闪烁定时器：250ms 后熄灭
+    Timer {
+        interval: 250ms;
+        running: root._mode-shimmer;
+        triggered => {
+            root._mode-shimmer = false;
+        }
+    }
 
     // 放手检测：拖拽结束时鼠标在爱心范围内 → 触发收藏夹
     changed is-dragging-to-favorite => {
-        debug("toolbar.changed.is-dragging-to-favorite: ", root.is-dragging-to-favorite, " mouse-in-fav: ", favorite-btn._mouse-in-favorite, " mx:", root.mouse-window-x, " my:", root.mouse-window-y);
-        if !root.is-dragging-to-favorite && favorite-btn._mouse-in-favorite {
-            root.drag-over-favorite-button();
+        if root.mode == 0 {
+            debug("toolbar.changed.is-dragging-to-favorite: ", root.is-dragging-to-favorite, " mouse-in-fav: ", favorite-btn._mouse-in-favorite, " mx:", root.mouse-window-x, " my:", root.mouse-window-y);
+            if !root.is-dragging-to-favorite && favorite-btn._mouse-in-favorite {
+                root.drag-over-favorite-button();
+            }
         }
     }
 
@@ -33,6 +114,28 @@ export component Toolbar {
 
     Rectangle {
         background: ThemeManager.is-dark ? rgba(0, 0, 0, 0.25) : rgba(255, 255, 255, 0.948);
+
+        // 顶部闪烁渐变线
+        Rectangle {
+            x: 0px;
+            y: 0px;
+            width: 100%;
+            height: 2px;
+            background: @linear-gradient(90deg, transparent 0%, rgba(0, 120, 212, 0.55) 50%, transparent 100%);
+            opacity: root._mode-shimmer ? 1.0 : 0.0;
+            animate opacity { duration: 200ms; easing: ease-out; }
+        }
+
+        // 底部闪烁渐变线
+        Rectangle {
+            x: 0px;
+            y: parent.height - 2px;
+            width: 100%;
+            height: 2px;
+            background: @linear-gradient(90deg, transparent 0%, rgba(0, 120, 212, 0.55) 50%, transparent 100%);
+            opacity: root._mode-shimmer ? 1.0 : 0.0;
+            animate opacity { duration: 200ms; easing: ease-out; }
+        }
 
         TouchArea {
             width: 100%;
@@ -53,13 +156,18 @@ export component Toolbar {
                 padding-bottom: 12px;
                 spacing: 12px;
 
-                // Hamburger-to-X toggle button
-                settings-btn := Rectangle {
+                // ========== 主面板顶栏: Hamburger to X ==========
+                if root.mode == 0: settings-btn := Rectangle {
                     width: 26px;
                     height: 26px;
                     background: transparent;
 
                     property <bool> _hover: hb-ta.has-hover;
+
+                    ToolbarTooltip {
+                        text: "设置";
+                        show: settings-btn._hover;
+                    }
 
                     line1 := Rectangle {
                         x: 3px;
@@ -141,14 +249,46 @@ export component Toolbar {
                     }
                 }
 
-                // Horizontal divider
+                // ========== 同步面板顶栏: 返回按钮 ==========
+                if root.mode == 1: back-btn := Rectangle {
+                    width: 26px;
+                    height: 26px;
+                    background: back-ta.has-hover ? rgba(0, 120, 212, 0.15) : transparent;
+                    border-radius: 4px;
+                    animate background { duration: 50ms; }
+
+                    ToolbarTooltip {
+                        text: "返回";
+                        show: back-ta.has-hover;
+                    }
+
+                    Text {
+                        text: "←";
+                        color: back-ta.has-hover ? #0078d4 : (ThemeManager.is-dark ? #ffffff : #1a1a1a);
+                        animate color { duration: 50ms; }
+                        font-size: 18px;
+                        font-weight: 600;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    back-ta := TouchArea {
+                        width: 100%;
+                        height: 100%;
+                        clicked => {
+                            root.toggle-share();
+                        }
+                    }
+                }
+
+                // Horizontal divider（两个模式共用）
                 Rectangle {
                     height: 1px;
                     background: ThemeManager.is-dark ? rgba(255, 255, 255, 0.1) : rgba(0, 0, 0, 0.1);
                 }
 
-                // 工具按钮
-                tool_btns := VerticalLayout {
+                // ========== 主面板工具按钮 ==========
+                if root.mode == 0: tool_btns := VerticalLayout {
                     spacing: 16px;
 
                     // Clear button
@@ -158,6 +298,11 @@ export component Toolbar {
                         background: transparent;
 
                         property <bool> _hover: clear-ta.has-hover;
+
+                        ToolbarTooltip {
+                            text: "清空历史";
+                            show: _hover;
+                        }
 
                         Image {
                             source: @image-url("../assets/delete.svg");
@@ -184,6 +329,11 @@ export component Toolbar {
 
                         property <bool> _hover: sort-ta.has-hover;
 
+                        ToolbarTooltip {
+                            text: "排序方式";
+                            show: _hover;
+                        }
+
                         Image {
                             source: root.sort-ascending ? @image-url("../assets/clock_arrow_up.svg") : @image-url("../assets/clock_arrow_down.svg");
                             width: 20px;
@@ -202,96 +352,147 @@ export component Toolbar {
                             }
                         }
                     }
+                }
 
-                    // Favorite button - uses position-based hover detection during drag
-                    favorite-btn := Rectangle {
-                        width: 24px;
-                        height: 24px;
-                        background: transparent;
+                // Favorite button - always defined (visible only in mode 0) for drag detection
+                favorite-btn := Rectangle {
+                    visible: root.mode == 0;
+                    width: 24px;
+                    height: 24px;
+                    background: transparent;
 
-                        property <bool> _hover: favorite-ta.has-hover;
+                    property <bool> _hover: favorite-ta.has-hover;
 
-                        // ── 动态坐标检测（无需硬编码偏移） ──
-                        property <bool> _is-over-favorite:
-                            root.is-dragging-to-favorite
-                            && mouse-window-x >= root.x + tool_btns.x + favorite-btn.x
-                            && mouse-window-x <= root.x + tool_btns.x + favorite-btn.x + 24px
-                            && mouse-window-y >= root.y + tool_btns.y + favorite-btn.y
-                            && mouse-window-y <= root.y + tool_btns.y + favorite-btn.y + 24px;
+                    ToolbarTooltip {
+                        text: "收藏夹";
+                        show: favorite-btn._hover;
+                    }
 
-                        // 检测鼠标位置是否在爱心范围内（独立于拖拽状态，用于放手检测）
-                        property <bool> _mouse-in-favorite:
-                            mouse-window-x >= root.x + tool_btns.x + favorite-btn.x
-                            && mouse-window-x <= root.x + tool_btns.x + favorite-btn.x + 24px
-                            && mouse-window-y >= root.y + tool_btns.y + favorite-btn.y
-                            && mouse-window-y <= root.y + tool_btns.y + favorite-btn.y + 24px;
+                    // 动态坐标检测
+                    property <bool> _is-over-favorite:
+                        root.is-dragging-to-favorite
+                        && mouse-window-x >= root.x + favorite-btn.x
+                        && mouse-window-x <= root.x + favorite-btn.x + 24px
+                        && mouse-window-y >= root.y + favorite-btn.y
+                        && mouse-window-y <= root.y + favorite-btn.y + 24px;
 
-                        property <bool> _highlighted: _hover || _is-over-favorite;
+                    // 检测鼠标位置是否在爱心范围内
+                    property <bool> _mouse-in-favorite:
+                        mouse-window-x >= root.x + favorite-btn.x
+                        && mouse-window-x <= root.x + favorite-btn.x + 24px
+                        && mouse-window-y >= root.y + favorite-btn.y
+                        && mouse-window-y <= root.y + favorite-btn.y + 24px;
 
-                        Image {
-                            source: @image-url("../assets/favorite.svg");
-                            width: 20px;
-                            height: 20px;
-                            colorize: root.favorite-list-visible || _highlighted
-                                ? #0078d4
-                                : (ThemeManager.is-dark ? #ffffff : #1a1a1a);
-                            animate colorize { duration: 50ms; }
-                            horizontal-alignment: center;
-                            vertical-alignment: center;
-                        }
+                    property <bool> _highlighted: _hover || _is-over-favorite;
 
-                        favorite-ta := TouchArea {
-                            width: 100%;
-                            height: 100%;
+                    Image {
+                        source: @image-url("../assets/favorite.svg");
+                        width: 20px;
+                        height: 20px;
+                        colorize: root.favorite-list-visible || _highlighted
+                            ? #0078d4
+                            : (ThemeManager.is-dark ? #ffffff : #1a1a1a);
+                        animate colorize { duration: 50ms; }
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
 
-                            clicked => {
-                                if !root.is-dragging-to-favorite {
-                                    root.favorite-list-visible = !root.favorite-list-visible;
-                                }
+                    favorite-ta := TouchArea {
+                        width: 100%;
+                        height: 100%;
+
+                        clicked => {
+                            if !root.is-dragging-to-favorite {
+                                root.favorite-list-visible = !root.favorite-list-visible;
                             }
                         }
                     }
+                }
 
-                    // Quit button
+                // ========== 同步面板工具按钮 ==========
+                if root.mode == 1: sync_btns := VerticalLayout {
+                    spacing: 16px;
+
+                    // Plus (添加设备) button
                     Rectangle {
                         width: 24px;
                         height: 24px;
                         background: transparent;
 
-                        property <bool> _hover: quit-ta.has-hover;
+                        property <bool> _hover: add-device-ta.has-hover;
 
-                        Text {
-                            text: "×";
-                            color: _hover ? #0078d4 : (ThemeManager.is-dark ? #ffffff : #1a1a1a);
-                            animate color { duration: 50ms; }
-                            font-size: 20px;
-                            font-weight: 500;
-                            horizontal-alignment: center;
-                            vertical-alignment: center;
+                        ToolbarTooltip {
+                            text: "添加设备";
+                            show: _hover;
                         }
 
-                        quit-ta := TouchArea {
+                        Image {
+                            source: @image-url("../assets/add.svg");
+                            width: 20px;
+                            height: 20px;
+                            colorize: _hover ? #0078d4 : (ThemeManager.is-dark ? #ffffff : #1a1a1a);
+                            animate colorize { duration: 50ms; }
+                        }
+
+                        add-device-ta := TouchArea {
                             width: 100%;
                             height: 100%;
                             clicked => {
-                                root.quit-app();
+                                root.add-device();
                             }
                         }
                     }
                 }
 
-                // Spacer to push share button to bottom
-                Rectangle {
-                    vertical-stretch: 1;
-                }
-
-                // Pin (置顶) button - 位于同步按钮上方
+                // Quit button（两个模式共用）
                 Rectangle {
                     width: 24px;
                     height: 24px;
                     background: transparent;
 
+                    property <bool> _hover: quit-ta.has-hover;
+
+                    ToolbarTooltip {
+                        text: "退出";
+                        show: _hover;
+                    }
+
+                    Text {
+                        text: "×";
+                        color: _hover ? #0078d4 : (ThemeManager.is-dark ? #ffffff : #1a1a1a);
+                        animate color { duration: 50ms; }
+                        font-size: 20px;
+                        font-weight: 500;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    quit-ta := TouchArea {
+                        width: 100%;
+                        height: 100%;
+                        clicked => {
+                            root.quit-app();
+                        }
+                    }
+                }
+
+                // Spacer to push bottom buttons down
+                Rectangle {
+                    vertical-stretch: 1;
+                }
+
+                // Pin button（仅主面板显示）
+                if root.mode == 0: Rectangle {
+                    width: 24px;
+                    height: 24px;
+                    background: transparent;
+
                     property <bool> _hover: pin-ta.has-hover;
+
+                    ToolbarTooltip {
+                        text: "置顶";
+                        show: _hover;
+                    }
 
                     Image {
                         source: @image-url("../assets/pin.svg");
@@ -301,7 +502,6 @@ export component Toolbar {
                             ? #0078d4
                             : (ThemeManager.is-dark ? #ffffff : #1a1a1a);
                         animate colorize { duration: 50ms; }
-                        // 置顶时旋转 45°，直观表示"被钉住"
                         transform-rotation: root.pinned ? 45deg : 0deg;
                         animate transform-rotation { duration: 150ms; easing: ease-out; }
                     }
@@ -315,13 +515,18 @@ export component Toolbar {
                     }
                 }
 
-                // Share button
+                // Share button（两个模式共用）
                 Rectangle {
                     width: 24px;
                     height: 24px;
                     background: transparent;
 
                     property <bool> _hover: share-ta.has-hover;
+
+                    ToolbarTooltip {
+                        text: "分享";
+                        show: _hover;
+                    }
 
                     Image {
                         source: @image-url("../assets/share.svg");

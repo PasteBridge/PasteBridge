@@ -24,6 +24,7 @@ windows-core = "0.58"
 winreg = "0.52"
 mimalloc = "0.1"
 image = "0.25"
+if-addrs = "0.10"
 
 [build-dependencies]
 slint-build = { path = "../../slint/api/rs/build" }

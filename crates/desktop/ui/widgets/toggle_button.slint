@@ -1,0 +1,109 @@
+import { ThemeManager } from "../themes.slint";
+
+// 模仿列表项高光样式的切换按钮组件
+export component ToggleButton {
+    in property <bool> checked;
+    callback toggled();
+
+    min-width: 56px;
+    height: 28px;
+
+    bg-rect := Rectangle {
+        width: 100%;
+        height: 100%;
+        border-radius: 6px;
+
+        // 背景：选中时蓝色基调，未选中时跟随列表项高光
+        background: root.checked
+            ? (ThemeManager.is-dark ? rgba(0, 120, 212, 0.35) : rgba(0, 120, 212, 0.2))
+            : (ta.has-hover
+                ? (ThemeManager.is-dark ? rgba(90, 90, 90, 0.6) : rgba(240, 240, 240, 0.9))
+                : transparent);
+        animate background { duration: 100ms; }
+
+        // 鼠标位置背景 spotlight（跟随鼠标）
+        Rectangle {
+            x: ta.mouse-x - 80px;
+            y: ta.mouse-y - 80px;
+            width: 160px;
+            height: 160px;
+            background: @radial-gradient(circle, rgba(0, 120, 212, 0.22) 0%, transparent 70%);
+            opacity: ta.has-hover ? 1.0 : 0.0;
+            animate x { duration: 80ms; easing: ease-out; }
+            animate y { duration: 80ms; easing: ease-out; }
+            animate opacity { duration: 150ms; easing: ease-out; }
+        }
+
+        // 顶部渐变边框（跟随鼠标）
+        Rectangle {
+            x: 0px;
+            y: 0px;
+            width: 100%;
+            height: 2px;
+            background: transparent;
+
+            property <length> seg-w: parent.width * 0.6;
+            property <length> seg-x: clamp(
+                ta.has-hover ? ta.mouse-x - seg-w / 2 : (parent.width - seg-w) / 2,
+                0px,
+                parent.width - seg-w
+            );
+
+            Rectangle {
+                x: seg-x;
+                y: 0px;
+                width: seg-w;
+                height: 2px;
+                background: @linear-gradient(90deg, transparent 0%, rgba(0, 120, 212, 0.55) 50%, transparent 100%);
+                opacity: root.checked ? 1.0 : (ta.has-hover ? 1.0 : 0.0);
+                animate x { duration: 0ms; }
+                animate opacity { duration: 150ms; easing: ease-out; }
+            }
+        }
+
+        // 底部渐变边框（跟随鼠标）
+        Rectangle {
+            x: 0px;
+            y: parent.height - 2px;
+            width: 100%;
+            height: 2px;
+            background: transparent;
+
+            property <length> seg-w: parent.width * 0.6;
+            property <length> seg-x: clamp(
+                ta.has-hover ? ta.mouse-x - seg-w / 2 : (parent.width - seg-w) / 2,
+                0px,
+                parent.width - seg-w
+            );
+
+            Rectangle {
+                x: seg-x;
+                y: 0px;
+                width: seg-w;
+                height: 2px;
+                background: @linear-gradient(90deg, transparent 0%, rgba(0, 120, 212, 0.55) 50%, transparent 100%);
+                opacity: root.checked ? 1.0 : (ta.has-hover ? 1.0 : 0.0);
+                animate x { duration: 0ms; }
+                animate opacity { duration: 150ms; easing: ease-out; }
+            }
+        }
+
+        // 状态标签
+        Text {
+            text: root.checked ? "开" : "关";
+            color: root.checked
+                ? #ffffff
+                : (ThemeManager.is-dark ? rgba(255, 255, 255, 0.7) : rgba(0, 0, 0, 0.6));
+            font-size: 12px;
+            font-weight: 600;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+
+    ta := TouchArea {
+        width: 100%;
+        height: 100%;
+        clicked => { root.toggled(); }
+    }
+}

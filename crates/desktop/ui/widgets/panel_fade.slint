@@ -41,11 +41,36 @@ export component PanelFadeContainer {
     }
 
     // Opacity: flash takes priority over panel-visible/closing.
-    opacity: root.flash ? 0.0 : (root.panel-visible || root.closing ? 1.0 : 0.0);
+    //
+    // Slint 语法约束:`animate` 块不能写在 `states` body 内部,必须在属性层级声明。
+    // 因此 opacity 动画用单个 animate 块 + 动态 duration 表达式实现:
+    //   - flash 触发时:20ms 极快淡出
+    //   - closing 或隐藏时:20ms 淡出
+    //   - 显示时:200ms 淡入
+    // 状态机通过 states 控制 opacity 的目标值,动画时长由当前状态决定。
+    opacity: 0.0;
     animate opacity {
-        duration: root.flash ? AnimationTokens.panel-flash-out : (root.panel-visible ? AnimationTokens.panel-fade-in : AnimationTokens.panel-fade-out);
+        duration: root.flash
+            ? AnimationTokens.panel-flash-out
+            : (root.closing || !root.panel-visible
+                ? AnimationTokens.panel-fade-out
+                : AnimationTokens.panel-fade-in);
         easing: ease-out-quint;
     }
+    states [
+        visible when root.panel-visible && !root.flash && !root.closing: {
+            opacity: 1.0;
+        }
+        hidden when !root.panel-visible && !root.closing && !root.flash: {
+            opacity: 0.0;
+        }
+        closing-state when root.closing && !root.flash: {
+            opacity: 0.0;
+        }
+        flashing when root.flash: {
+            opacity: 0.0;
+        }
+    ]
 
     // Background rectangle — fills the parent component naturally.
     Rectangle {

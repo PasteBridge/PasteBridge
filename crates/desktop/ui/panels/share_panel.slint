@@ -4,6 +4,8 @@ import { PanelFadeContainer } from "../widgets/panel_fade.slint";
 export component SharePanel {
     in property <bool> share-visible;
     in-out property <bool> flash;
+    // 本机所有 IPv4 地址(由 Rust 端通过 if_addrs 枚举并填入)
+    in property <[string]> local-ips: [];
     out property <bool> closing: container.closing;
     callback start-closing();
     callback done-closing();
@@ -17,12 +19,14 @@ export component SharePanel {
 
         if root.share-visible || container.closing: VerticalLayout {
             width: parent.width;
+            height: parent.height;
             padding: 16px;
             spacing: 12px;
-            
+
+            // ─── 顶部: 标题 + 配对按钮 ───
             HorizontalLayout {
                 spacing: 8px;
-                
+
                 Text {
                     text: "同步";
                     color: ThemeManager.is-dark ? #ffffff : #1a1a1a;
@@ -31,9 +35,9 @@ export component SharePanel {
                     horizontal-alignment: left;
                     vertical-alignment: center;
                 }
-                
+
                 Rectangle { vertical-stretch: 0; horizontal-stretch: 1; }
-                
+
                 Rectangle {
                     width: 80px;
                     height: 28px;
@@ -41,7 +45,7 @@ export component SharePanel {
                     border-radius: 6px;
                     border-width: 1px;
                     border-color: #0078d4;
-                    
+
                     Text {
                         text: "+ 配对设备";
                         color: #0078d4;
@@ -49,7 +53,7 @@ export component SharePanel {
                         horizontal-alignment: center;
                         vertical-alignment: center;
                     }
-                    
+
                     TouchArea {
                         width: 100%;
                         height: 100%;
@@ -59,20 +63,121 @@ export component SharePanel {
                     }
                 }
             }
-            
+
             Rectangle {
                 height: 1px;
                 background: ThemeManager.is-dark ? rgba(255, 255, 255, 0.1) : rgba(0, 0, 0, 0.1);
             }
-            
+
+            // ─── 中部: 设备占位(占满剩余空间,把 IP 列表挤到底部) ───
             VerticalLayout {
+                horizontal-stretch: 1;
+                vertical-stretch: 1;
                 spacing: 12px;
-                
+                alignment: center;
+
                 Text {
                     text: "暂无同步设备";
                     color: ThemeManager.is-dark ? rgba(255, 255, 255, 0.5) : rgba(0, 0, 0, 0.4);
                     font-size: 13px;
                     horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+
+            // ─── 底部: 本机 IP 列表,从下向上叠加 ───
+            // 使用绝对定位的 Rectangle 作为"容器" + 多个 IP 项 Rectangle 按 y 坐标由下至上堆叠。
+            // 最下面的 IP(y 最大)位于面板底部,依次向上排列,符合"向上叠加为列表"的语义。
+            Rectangle {
+                width: parent.width;
+                // 高度根据 IP 数量自适应: 每行 22px, 最多 8 行
+                height: 22px * Math.min(root.local-ips.length, 8) + 18px;
+                horizontal-stretch: 1;
+
+                // 列表标题(固定在容器最顶端,因为 IP 从底部向上叠加)
+                Text {
+                    x: 0;
+                    y: 0;
+                    width: parent.width;
+                    height: 16px;
+                    text: "本机 IP";
+                    color: ThemeManager.is-dark ? rgba(255, 255, 255, 0.55) : rgba(0, 0, 0, 0.5);
+                    font-size: 11px;
+                    font-weight: 500;
+                    horizontal-alignment: left;
+                    vertical-alignment: center;
+                }
+
+                // 列表分隔线
+                Rectangle {
+                    x: 0;
+                    y: 18px;
+                    width: parent.width;
+                    height: 1px;
+                    background: ThemeManager.is-dark ? rgba(255, 255, 255, 0.08) : rgba(0, 0, 0, 0.06);
+                }
+
+                // IP 行:从底部向上叠加。index 0 = 最底, index N-1 = 最顶
+                for ip[idx] in root.local-ips: Rectangle {
+                    // y 坐标:从底部开始向上推。每个 IP 行 22px,起点 = 父高 - 18(标题区) - 22*(idx+1)
+                    // 但因有 max 8 限制,Math.min 后实际可见仍按列表顺序从下往上叠。
+                    y: parent.height - 18px - 22px * (idx + 1);
+                    x: 0;
+                    width: parent.width;
+                    height: 22px;
+
+                    Text {
+                        x: 0;
+                        y: 0;
+                        width: parent.width - 60px;
+                        height: parent.height;
+                        text: ip;
+                        color: ThemeManager.is-dark ? #e6e6e6 : #1a1a1a;
+                        font-size: 12px;
+                        font-family: "JetBrains Mono, Consolas, monospace";
+                        horizontal-alignment: left;
+                        vertical-alignment: center;
+                    }
+
+                    // 右侧"复制"按钮(可选交互)
+                    Rectangle {
+                        x: parent.width - 50px;
+                        y: 3px;
+                        width: 44px;
+                        height: parent.height - 6px;
+                        border-radius: 4px;
+                        background: copy-area.pressed
+                            ? (ThemeManager.is-dark ? rgba(0, 120, 212, 0.45) : rgba(0, 120, 212, 0.28))
+                            : (ThemeManager.is-dark ? rgba(255, 255, 255, 0.06) : rgba(0, 0, 0, 0.04));
+
+                        Text {
+                            text: "复制";
+                            color: ThemeManager.is-dark ? #9ec6ff : #0078d4;
+                            font-size: 10px;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        copy-area := TouchArea {
+                            width: 100%;
+                            height: 100%;
+                            // 将 IP 文本作为子节点携带,点击时由外层回调处理;
+                            // 此处仅做视觉反馈,实际复制由回调实现
+                        }
+                    }
+                }
+
+                // 空状态提示
+                if root.local-ips.length == 0: Text {
+                    x: 0;
+                    y: parent.height - 22px;
+                    width: parent.width;
+                    height: 22px;
+                    text: "未检测到可用 IP";
+                    color: ThemeManager.is-dark ? rgba(255, 255, 255, 0.4) : rgba(0, 0, 0, 0.35);
+                    font-size: 11px;
+                    horizontal-alignment: left;
+                    vertical-alignment: center;
                 }
             }
         }

@@ -3145,7 +3145,6 @@ dependencies = [
  "android-activity 0.5.2",
  "android-activity 0.6.1",
  "android-build",
- "i-slint-common",
  "i-slint-core",
  "i-slint-renderer-skia",
  "jni 0.22.4",
@@ -3759,6 +3758,16 @@ checksum = "cb68373c0d6620ef8105e855e7745e18b0d00d3bdb07fb532e434244cdb9a714"
 dependencies = [
  "icu_normalizer",
  "icu_properties",
+]
+
+[[package]]
+name = "if-addrs"
+version = "0.10.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cabb0019d51a643781ff15c9c8a3e5dedc365c47211270f4e8f82812fedd8f0a"
+dependencies = [
+ "libc",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
@@ -4567,7 +4576,7 @@ checksum = "183d7ebd9fe3815c1635cd039d1ed95f1d315731cc13e6d504e4ae039d527b8d"
 dependencies = [
  "fastrand",
  "flume",
- "if-addrs",
+ "if-addrs 0.14.0",
  "mio",
  "socket-pktinfo",
  "socket2",
@@ -5668,6 +5677,7 @@ dependencies = [
  "clipboard-win",
  "global-hotkey",
  "hex",
+ "if-addrs 0.10.2",
  "image",
  "mimalloc",
  "paste_bridge_core",

@@ -12,7 +12,6 @@ pub struct ClipboardItem {
     pub id: i64,
     pub content_type: ContentType,
     pub content_text: Option<String>,
-    pub content_path: Option<String>,
     pub content_hash: String,
     pub mime_type: Option<String>,
     pub file_size: Option<i64>,

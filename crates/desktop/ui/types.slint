@@ -10,11 +10,14 @@ export enum ContentKind {
 }
 
 // 列表项的统一数据结构,文本和图片共用
+// 优化: 图片按需加载,未加载时 image 为空,image-loaded 为 false
 export struct ClipboardEntryData {
     id: int,
     content-kind: ContentKind,
-    text: string,           // 文本项: 实际内容; 图片项: 空
+    text: string,           // 文本项: 实际内容(原始 \n 分隔); 图片项: 空
     image: image,           // 图片项: 加载好的 Slint Image; 文本项: 空 image
+    image-loaded: bool,     // 图片是否已加载(用于虚拟滚动优化)
+    image-id: int,          // 图片项: 数据库 id (用于懒加载从 DB 读取 BLOB); 文本项: 0
     timestamp: string,      // 格式化好的时间字符串
     width: int,             // 图片宽度; 文本项为 0
     height: int,            // 图片高度; 文本项为 0

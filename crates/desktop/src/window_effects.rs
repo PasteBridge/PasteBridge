@@ -112,24 +112,42 @@ pub fn apply_window_effects_from_handle(hwnd: windows::Win32::Foundation::HWND) 
 pub fn apply_window_effects() {
     thread::spawn(move || {
         unsafe {
-            use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, EnumWindows, GetWindowTextW, GetClassNameW};
+            use windows::Win32::UI::WindowsAndMessaging::{
+                FindWindowW, EnumWindows, GetWindowTextW, GetClassNameW,
+                GetWindowThreadProcessId,
+            };
+            use windows::Win32::System::Threading::GetCurrentProcessId;
             use windows::Win32::Foundation::{HWND, BOOL, LPARAM};
             use windows::core::PCWSTR;
+
+            let current_pid = GetCurrentProcessId();
 
             let mut found_hwnd = HWND::default();
 
             static mut FOUND_HWND: HWND = HWND(std::ptr::null_mut());
+            static mut TARGET_PID: u32 = 0;
 
             unsafe extern "system" fn enum_windows_proc(hwnd: HWND, _lparam: LPARAM) -> BOOL {
                 let mut title_buf = [0u16; 256];
                 let title_len = GetWindowTextW(hwnd, &mut title_buf);
                 let title = String::from_utf16_lossy(&title_buf[..title_len as usize]);
 
+                if title != "PasteBridge" {
+                    return BOOL(1);
+                }
+
                 let mut class_buf = [0u16; 256];
                 let class_len = GetClassNameW(hwnd, &mut class_buf);
                 let class_name = String::from_utf16_lossy(&class_buf[..class_len as usize]);
 
-                if title == "PasteBridge" && !class_name.contains("Cabinet") && !class_name.contains("Explore") {
+                if class_name.contains("Cabinet") || class_name.contains("Explore") {
+                    return BOOL(1);
+                }
+
+                // 检查窗口是否属于当前进程，避免注入到外部同名窗口
+                let mut pid: u32 = 0;
+                let _ = GetWindowThreadProcessId(hwnd, Some(&mut pid));
+                if pid == TARGET_PID {
                     FOUND_HWND = hwnd;
                     return BOOL(0);
                 }
@@ -139,17 +157,25 @@ pub fn apply_window_effects() {
 
             while found_hwnd.is_invalid() {
                 FOUND_HWND = HWND::default();
+                TARGET_PID = current_pid;
 
                 let title: Vec<u16> = "PasteBridge\0".encode_utf16().collect();
                 found_hwnd = FindWindowW(PCWSTR::null(), PCWSTR(title.as_ptr())).unwrap_or_default();
 
                 if !found_hwnd.is_invalid() {
-                    let mut class_buf = [0u16; 256];
-                    let class_len = GetClassNameW(found_hwnd, &mut class_buf);
-                    let class_name = String::from_utf16_lossy(&class_buf[..class_len as usize]);
-
-                    if class_name.contains("Cabinet") || class_name.contains("Explore") {
+                    // 验证找到的窗口是否属于当前进程
+                    let mut pid: u32 = 0;
+                    let _ = GetWindowThreadProcessId(found_hwnd, Some(&mut pid));
+                    if pid != current_pid {
                         found_hwnd = HWND::default();
+                    } else {
+                        let mut class_buf = [0u16; 256];
+                        let class_len = GetClassNameW(found_hwnd, &mut class_buf);
+                        let class_name = String::from_utf16_lossy(&class_buf[..class_len as usize]);
+
+                        if class_name.contains("Cabinet") || class_name.contains("Explore") {
+                            found_hwnd = HWND::default();
+                        }
                     }
                 }
 

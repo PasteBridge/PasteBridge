@@ -2,7 +2,47 @@ import { ThemeManager } from "../themes.slint";
 
 export component SearchBox {
     in-out property <string> query: "";
+
+    // 显示优先级（从高到低）：
+    // 1) tooltip-text  悬浮项的完整内容（+ 可选 tooltip-timestamp）
+    // 2) time-indicator + content-kind-label + time-order  三栏显示
+    // 3) placeholder-text  "搜索..."  默认显示
+    in-out property <string> tooltip-text: "";
+    in-out property <string> tooltip-timestamp: "";
+    in-out property <string> time-indicator: "";
+    in-out property <string> content-kind-label: "";
+    in-out property <string> time-order: "";
+    in-out property <string> placeholder-text: "搜索...";
+
     callback query-changed(new-query: string);
+    in-out property <bool> has-focus: search-input.has-focus;
+
+    // 输入防抖:键入/删除时只更新 query 显示,延迟 200ms 才回调 Rust 端触发搜索,
+    // 避免每个按键都触发整个 ListView 全量重建导致的帧率骤降
+    in-out property <string> _pending-query: "";
+    in-out property <bool> _query-debounce-pending: false;
+    debounce-timer := Timer {
+        interval: 200ms;
+        running: root._query-debounce-pending;
+        triggered => {
+            root._query-debounce-pending = false;
+            // 防抖窗口结束,把最后一次的 query 回调给上层
+            root.query-changed(root._pending-query);
+        }
+    }
+    // 公开方法:让父组件可以立即触发搜索(例如点击"清空"按钮)
+    public function flush-pending-query() {
+        if root._query-debounce-pending {
+            debounce-timer.stop();
+            root._query-debounce-pending = false;
+            root.query-changed(root._pending-query);
+        }
+    }
+
+    // 派生属性：当前应显示的层
+    in-out property <bool> show-tooltip: root.query == "" && root.tooltip-text != "";
+    in-out property <bool> show-time: root.query == "" && root.tooltip-text == "" && root.time-indicator != "";
+    in-out property <bool> show-placeholder: root.query == "" && root.tooltip-text == "" && root.time-indicator == "";
 
     height: 36px;
 
@@ -17,26 +57,99 @@ export component SearchBox {
             Rectangle {
                 horizontal-stretch: 1;
 
-                // 输入框
+                // 输入框（显示焦点线）
                 search-input := TextInput {
                     width: 100%;
                     height: 100%;
                     vertical-alignment: center;
+                    horizontal-alignment: left;
                     font-size: 13px;
                     color: ThemeManager.is-dark ? #ffffff : #1a1a1a;
                     text <=> root.query;
 
                     edited => {
-                        root.query-changed(root.query);
+                        // 走防抖通道:每个按键仅更新待发 query + 重启 200ms 计时器,
+                        // 避免每个按键都同步触发 Rust 端 ListView 全量重建
+                        root._pending-query = root.query;
+                        root._query-debounce-pending = true;
                     }
                 }
 
-                // 占位提示（无输入时显示）
-                if root.query == "": Text {
-                    text: "搜索...";
-                    color: ThemeManager.is-dark ? rgba(255, 255, 255, 0.4) : rgba(0, 0, 0, 0.4);
+                // 优先级 1: tooltip 完整内容（带时间戳）左对齐
+                if root.show-tooltip: Rectangle {
+                    width: 100%;
+                    height: 100%;
+
+                    HorizontalLayout {
+                        spacing: 8px;
+
+                        Text {
+                            text: root.tooltip-text;
+                            color: ThemeManager.is-dark ? rgba(255, 255, 255, 0.9) : rgba(0, 0, 0, 0.78);
+                            font-size: 12px;
+                            vertical-alignment: center;
+                            horizontal-alignment: left;
+                            overflow: elide;
+                            horizontal-stretch: 1;
+                        }
+
+                        if root.tooltip-timestamp != "": Text {
+                            text: root.tooltip-timestamp;
+                            color: ThemeManager.is-dark ? rgba(255, 255, 255, 0.65) : rgba(0, 0, 0, 0.55);
+                            font-size: 11px;
+                            vertical-alignment: center;
+                            horizontal-alignment: right;
+                        }
+                    }
+                }
+
+                // 优先级 2: 左侧类型标识 · 中间时间 · 右边次序（三栏）
+                if root.show-time: Rectangle {
+                    width: 100%;
+                    height: 100%;
+
+                    HorizontalLayout {
+                        spacing: 8px;
+
+                        // 左侧：内容类型（如 CF_TEXT / CF_DIB）
+                        Text {
+                            text: root.content-kind-label;
+                            color: ThemeManager.is-dark ? rgba(255, 255, 255, 0.9) : rgba(0, 0, 0, 0.78);
+                            font-size: 11px;
+                            font-weight: 700;
+                            vertical-alignment: center;
+                            horizontal-alignment: left;
+                        }
+
+                        // 中间：时间戳
+                        Text {
+                            text: root.time-indicator;
+                            color: ThemeManager.is-dark ? rgba(255, 255, 255, 0.65) : rgba(0, 0, 0, 0.55);
+                            font-size: 11px;
+                            vertical-alignment: center;
+                            horizontal-alignment: left;
+                            horizontal-stretch: 1;
+                            overflow: elide;
+                        }
+
+                        // 右边：次序（如 3/15）
+                        if root.time-order != "": Text {
+                            text: root.time-order;
+                            color: ThemeManager.is-dark ? rgba(255, 255, 255, 0.7) : rgba(0, 0, 0, 0.6);
+                            font-size: 11px;
+                            vertical-alignment: center;
+                            horizontal-alignment: right;
+                        }
+                    }
+                }
+
+                // 优先级 3: 占位提示（默认）左对齐
+                if root.show-placeholder: Text {
+                    text: root.placeholder-text;
+                    color: ThemeManager.is-dark ? rgba(255, 255, 255, 0.6) : rgba(0, 0, 0, 0.55);
                     font-size: 13px;
                     vertical-alignment: center;
+                    horizontal-alignment: left;
                 }
             }
         }

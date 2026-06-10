@@ -20,6 +20,7 @@ pub mod clipboard;
 pub mod drag_out;
 pub mod dummy_window;
 pub mod focus;
+pub mod net;
 pub mod popup;
 pub mod sync;
 pub mod tooltip;
@@ -36,8 +37,14 @@ use global_hotkey::{GlobalHotKeyManager, hotkey::{HotKey, Modifiers, Code}};
 
 fn main() {
     std::env::set_var("SLINT_BACKEND", "winit-skia");
-    std::env::set_var("SLINT_STYLE", "fluent");
+    std::env::set_var("SLINT_STYLE", "material");
     std::env::set_var("ICU4X_DATA_DIR", "");
+
+    // 性能调试：持续刷新以暴露瓶颈，并在每个窗口叠加帧率显示
+    std::env::set_var("SLINT_DEBUG_PERFORMANCE", "refresh_full_speed,overlay");
+
+    // Enable Skia advanced font rendering
+    std::env::set_var("SKIA_FONTS_PATH", ""); // Use system fonts
 
     const WINDOW_WIDTH: f32 = 280.0;
     const WINDOW_HEIGHT: f32 = 396.0;
@@ -122,7 +129,7 @@ fn main() {
             eprintln!("[config] Loaded pinned: {}", pinned);
         }
 
-        // 加载窗口大小设置
+        // 加载窗口大小设置(必须在 show() 之前设置,才能影响 Slint 布局系统的 preferred-width/height)
         let mut loaded_width = WINDOW_WIDTH;
         let mut loaded_height = WINDOW_HEIGHT;
 
@@ -144,11 +151,26 @@ fn main() {
             }
         }
 
+        // 把持久化尺寸设置到 Slint 属性,并调用 set_size 设置 has_explicit_size 标志
+        // (必须在 show() 之前调用 set_size,否则 Slint 会用 preferred-width/height 覆盖)
+        app.set_initial_width(loaded_width);
+        app.set_initial_height(loaded_height);
         app.window().set_size(slint::LogicalSize::new(loaded_width, loaded_height));
+
+        // 枚举本机所有非回环 IPv4 地址,填充到同步面板
+        let local_ips = net::list_local_ipv4();
+        eprintln!("[net] Detected {} local IPv4 address(es): {:?}", local_ips.len(), local_ips);
+        let ips_model = std::rc::Rc::new(slint::VecModel::from(
+            local_ips.iter().map(|s| slint::SharedString::from(s.as_str())).collect::<Vec<_>>()
+        ));
+        app.set_local_ips(ips_model.into());
+
+        // 根据加载的尺寸计算并设置窗口位置
         let pos = window_position::calc_window_position(&app, loaded_width as i32, loaded_height as i32);
         let _ = app.window().set_position(pos);
     }
     let _ = app.window().show();
+
     tray::IS_VISIBLE.store(true, Ordering::SeqCst);
 
     focus::start_focus_tracker();
@@ -156,17 +178,32 @@ fn main() {
     // Window size change monitor
     {
         let app_weak_for_size = app_weak.clone();
-        let last_width = Arc::new(std::sync::atomic::AtomicI32::new(app.window().size().width as i32));
-        let last_height = Arc::new(std::sync::atomic::AtomicI32::new(app.window().size().height as i32));
+        let state_for_size = state.clone();
+        // 初始化为 -1 哨兵值,首次轮询时强制同步当前实际尺寸(避免把默认值当作"无变化"漏保存)
+        let last_width = Arc::new(std::sync::atomic::AtomicI32::new(-1));
+        let last_height = Arc::new(std::sync::atomic::AtomicI32::new(-1));
 
         std::thread::spawn(move || {
             loop {
                 std::thread::sleep(std::time::Duration::from_millis(100));
 
                 if let Some(app) = app_weak_for_size.upgrade() {
+                    // 窗口隐藏时不保存(避免保存 hide 时的 0x0 或默认值)
+                    if !tray::IS_VISIBLE.load(Ordering::SeqCst) {
+                        last_width.store(-1, std::sync::atomic::Ordering::Relaxed);
+                        last_height.store(-1, std::sync::atomic::Ordering::Relaxed);
+                        continue;
+                    }
+
                     let current_size = app.window().size();
                     let current_width = current_size.width as i32;
                     let current_height = current_size.height as i32;
+
+                    // 过滤无效值(窗口最小化时会变成 0)
+                    if current_width < 200 || current_height < 300
+                        || current_width > 600 || current_height > 800 {
+                        continue;
+                    }
 
                     let last_w = last_width.load(std::sync::atomic::Ordering::Relaxed);
                     let last_h = last_height.load(std::sync::atomic::Ordering::Relaxed);
@@ -175,12 +212,22 @@ fn main() {
                         last_width.store(current_width, std::sync::atomic::Ordering::Relaxed);
                         last_height.store(current_height, std::sync::atomic::Ordering::Relaxed);
 
+                        // 持久化窗口大小
+                        state_for_size.set_config("window-width", &current_width.to_string());
+                        state_for_size.set_config("window-height", &current_height.to_string());
+                        eprintln!("[config] Saved window size: {}x{}", current_width, current_height);
+
+                        // 同步更新 initial-width/initial-height,保持与 width/height 的绑定一致
                         let app_clone = app_weak_for_size.clone();
+                        let cw = current_width;
+                        let ch = current_height;
                         let _ = slint::invoke_from_event_loop(move || {
                             if let Some(app) = app_clone.upgrade() {
+                                app.set_initial_width(cw as f32);
+                                app.set_initial_height(ch as f32);
                                 app.set_size_tooltip_visible(true);
-                                app.set_last_width(current_width);
-                                app.set_last_height(current_height);
+                                app.set_last_width(cw);
+                                app.set_last_height(ch);
                             }
                         });
                     }
@@ -213,7 +260,6 @@ fn main() {
     let state_for_ui = state.clone();
     let entries_for_update = clipboard_entries_clone.clone();
     clipboard::start_clipboard_monitor(state_for_clipboard, {
-        let app_data_dir_for_clip_cb = app_data_dir.clone();
         move || {
             let weak = app_weak_clone.clone();
             let state = state_for_ui.clone();
@@ -223,11 +269,11 @@ fn main() {
                 weak,
                 state,
                 entries_for_update,
-                app_data_dir_for_clip_cb.clone(),
+                std::path::PathBuf::new(),
                 true,
             );
         }
-    }, app_data_dir.clone());
+    });
 
     #[cfg(target_os = "windows")]
     window_effects::apply_window_effects();
@@ -272,8 +318,9 @@ fn main() {
                         let _ = app.window().hide();
                         tray::IS_VISIBLE.store(false, Ordering::SeqCst);
                     } else {
-                        app.window().set_size(slint::LogicalSize::new(WINDOW_WIDTH, WINDOW_HEIGHT));
-                        let pos = window_position::calc_window_position(&app, WINDOW_WIDTH as i32, WINDOW_HEIGHT as i32);
+                        let cur_w = app.get_initial_width() as i32;
+                        let cur_h = app.get_initial_height() as i32;
+                        let pos = window_position::calc_window_position(&app, cur_w, cur_h);
                         let _ = app.window().set_position(pos);
 
                         let _ = app.window().show();

@@ -176,6 +176,72 @@ export component FavoriteList {
                     background: ta.has-hover
                         ? (ThemeManager.is-dark ? rgba(255, 255, 255, 0.06) : rgba(0, 0, 0, 0.04))
                         : transparent;
+                    clip: true;
+
+                    // 鼠标位置背景 spotlight
+                    Rectangle {
+                        x: ta.mouse-x - 150px;
+                        y: ta.mouse-y - 80px;
+                        width: 300px;
+                        height: 160px;
+                        background: @radial-gradient(circle, rgba(0, 120, 212, 0.22) 0%, transparent 70%);
+                        opacity: ta.has-hover ? 1.0 : 0.0;
+                        animate x { duration: 80ms; easing: ease-out; }
+                        animate y { duration: 80ms; easing: ease-out; }
+                        animate opacity { duration: 150ms; easing: ease-out; }
+                    }
+
+                    // 顶部水平边框: 跟随鼠标 x 移动，两端渐变 (颜色淡一点)
+                    Rectangle {
+                        x: 0px;
+                        y: 0px;
+                        width: 100%;
+                        height: 2px;
+                        background: transparent;
+
+                        property <length> seg-w: parent.width * 0.4;
+                        property <length> seg-x: clamp(
+                            ta.has-hover ? ta.mouse-x - seg-w / 2 : (parent.width - seg-w) / 2,
+                            0px,
+                            parent.width - seg-w
+                        );
+
+                        Rectangle {
+                            x: seg-x;
+                            width: seg-w;
+                            height: 2px;
+                            background: @linear-gradient(90deg, transparent 0%, rgba(0, 120, 212, 0.55) 50%, transparent 100%);
+                            opacity: ta.has-hover ? 1.0 : 0.0;
+                            animate x { duration: 0ms; }
+                            animate opacity { duration: 150ms; easing: ease-out; }
+                        }
+                    }
+
+                    // 底部水平边框
+                    Rectangle {
+                        x: 0px;
+                        y: parent.height - 2px;
+                        width: 100%;
+                        height: 2px;
+                        background: transparent;
+
+                        property <length> seg-w: parent.width * 0.4;
+                        property <length> seg-x: clamp(
+                            ta.has-hover ? ta.mouse-x - seg-w / 2 : (parent.width - seg-w) / 2,
+                            0px,
+                            parent.width - seg-w
+                        );
+
+                        Rectangle {
+                            x: seg-x;
+                            width: seg-w;
+                            height: 2px;
+                            background: @linear-gradient(90deg, transparent 0%, rgba(0, 120, 212, 0.55) 50%, transparent 100%);
+                            opacity: ta.has-hover ? 1.0 : 0.0;
+                            animate x { duration: 0ms; }
+                            animate opacity { duration: 150ms; easing: ease-out; }
+                        }
+                    }
 
                     HorizontalLayout {
                         padding-left: 16px;

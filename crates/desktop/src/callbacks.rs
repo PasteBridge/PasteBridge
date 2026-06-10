@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
 use slint::{ComponentHandle, Model};
+use image::GenericImageView;
 use crate::sync::ClipboardEntry;
 use crate::AppWindow;
 
@@ -49,6 +50,15 @@ pub fn register_all(app: &AppWindow, ctx: &CallbackContext) {
     register_clear_multi_select(app, ctx);
     register_search_history(app, ctx);
     register_reset_window_size(app, ctx);
+    register_load_visible_images(app, ctx);
+    register_add_device(app);
+    register_import_from_ditto(app, ctx);
+}
+
+fn register_add_device(app: &AppWindow) {
+    app.on_add_device(move || {
+        eprintln!("[sync] Add device clicked - pairing flow not yet implemented");
+    });
 }
 
 fn register_save_setting(app: &AppWindow, ctx: &CallbackContext) {
@@ -92,7 +102,7 @@ fn register_copy_item(app: &AppWindow, ctx: &CallbackContext) {
     let entries = ctx.clipboard_entries.clone();
     let state = ctx.state.clone();
     let weak = ctx.app_weak.clone();
-    let app_data_dir = ctx.app_data_dir.clone();
+    let clipboard_entries_clone = ctx.clipboard_entries.clone();
     app.on_copy_item(move |index: i32| {
         let idx = index as usize;
         let entries = entries.lock().unwrap();
@@ -102,7 +112,6 @@ fn register_copy_item(app: &AppWindow, ctx: &CallbackContext) {
         }
         let id = entries[idx].id;
         let is_image = matches!(entries[idx].content_type, paste_bridge_core::models::ContentType::Image);
-        let image_path = entries[idx].image_path.clone();
         drop(entries);
 
         // 防重入: 同一 id 正在复制中,跳过此次重复触发
@@ -111,20 +120,25 @@ fn register_copy_item(app: &AppWindow, ctx: &CallbackContext) {
             return;
         }
 
+        // 更新项目创建时间使其置顶
+        state.update_item_created_at(id);
+
         if is_image {
-            // ── 图片复制 ──
-            let Some(rel_path) = image_path else {
+            // ── 图片复制: 从 DB BLOB 读取原图 ──
+            let Some((png_bytes, _mime)) = state.get_image_data(id) else {
                 COPYING_ITEM_ID.store(-1, Ordering::SeqCst);
-                eprintln!("copy-item: image id={} has no path", id);
+                eprintln!("copy-item: image id={} not found in DB", id);
                 return;
             };
-            let abs_path = app_data_dir.join(&rel_path);
-            eprintln!("copy-item: image id={}, path={}", id, abs_path.display());
+            eprintln!("copy-item: image id={}, {} bytes from DB", id, png_bytes.len());
 
             // 后台线程写入剪贴板,不阻塞 UI 事件循环
             let weak_toast = weak.clone();
+            let weak_refresh = weak.clone();
+            let state_for_refresh = state.clone();
+            let entries_for_refresh = clipboard_entries_clone.clone();
             std::thread::spawn(move || {
-                let res = crate::clipboard::set_clipboard_image_blocking(&abs_path);
+                let res = crate::clipboard::set_clipboard_image_blocking(&png_bytes);
                 match &res {
                     Ok((w, h)) => {
                         eprintln!("copy-item: 剪贴板图片就绪 ({}x{})", w, h);
@@ -134,6 +148,19 @@ fn register_copy_item(app: &AppWindow, ctx: &CallbackContext) {
                     Err(e) => eprintln!("copy-item: 剪贴板图片写入失败: {}", e),
                 }
                 COPYING_ITEM_ID.store(-1, Ordering::SeqCst);
+
+                let _ = slint::invoke_from_event_loop(move || {
+                    if let Some(app) = weak_refresh.upgrade() {
+                        crate::sync::sync_history_to_ui(
+                            &weak_refresh,
+                            &state_for_refresh,
+                            &entries_for_refresh,
+                            std::path::Path::new(""),
+                            true,
+                        );
+                        app.set_scroll_to_top(true);
+                    }
+                });
 
                 let _ = slint::invoke_from_event_loop(move || {
                     if let Some(app) = weak_toast.upgrade() {
@@ -164,6 +191,9 @@ fn register_copy_item(app: &AppWindow, ctx: &CallbackContext) {
         };
         // 后台线程写入剪贴板,不阻塞 UI 事件循环
         let weak_toast = weak.clone();
+        let weak_refresh = weak.clone();
+        let state_for_refresh = state.clone();
+        let entries_for_refresh = clipboard_entries_clone.clone();
         std::thread::spawn(move || {
             if let Err(e) = crate::clipboard::set_clipboard_text_blocking(text.clone()) {
                 eprintln!("copy-item: 剪贴板文本写入失败: {}", e);
@@ -174,6 +204,19 @@ fn register_copy_item(app: &AppWindow, ctx: &CallbackContext) {
                 crate::clipboard::skip_next_text_detect();
             }
             COPYING_ITEM_ID.store(-1, Ordering::SeqCst);
+
+            let _ = slint::invoke_from_event_loop(move || {
+                if let Some(app) = weak_refresh.upgrade() {
+                    crate::sync::sync_history_to_ui(
+                        &weak_refresh,
+                        &state_for_refresh,
+                        &entries_for_refresh,
+                        std::path::Path::new(""),
+                        true,
+                    );
+                    app.set_scroll_to_top(true);
+                }
+            });
 
             let _ = slint::invoke_from_event_loop(move || {
                 if let Some(app) = weak_toast.upgrade() {
@@ -195,6 +238,7 @@ fn register_show_hover_tooltip(app: &AppWindow, ctx: &CallbackContext) {
     let entries = ctx.clipboard_entries.clone();
     let state = ctx.state.clone();
     let popup = ctx.popup_tooltip.clone();
+    let app_weak = ctx.app_weak.clone();
     app.on_show_hover_tooltip_index(move |index: i32| {
         let idx = index as usize;
         let entries = entries.lock().unwrap();
@@ -206,7 +250,7 @@ fn register_show_hover_tooltip(app: &AppWindow, ctx: &CallbackContext) {
             if let Some(text) = item.content_text {
                 let popup_lock = popup.lock().unwrap();
                 if let Some(ref popup) = *popup_lock {
-                    popup.set_content_text(text.into());
+                    popup.set_content_text(text.clone().into());
 
                     let timestamp_str = {
                         use chrono::{DateTime, Local, TimeZone};
@@ -231,7 +275,14 @@ fn register_show_hover_tooltip(app: &AppWindow, ctx: &CallbackContext) {
                         };
                         ts
                     };
-                    popup.set_content_timestamp(timestamp_str.into());
+                    popup.set_content_timestamp(timestamp_str.clone().into());
+
+                    // 同步到 AppWindow 供 search-box 显示（合并 tooltip）
+                    if let Some(app) = app_weak.upgrade() {
+                        app.set_tooltip_text(text.into());
+                        app.set_tooltip_timestamp(timestamp_str.clone().into());
+                        app.set_tooltip_visible(true);
+                    }
 
                     popup.set_show_pending(true);
                     popup.set_show_state(false);
@@ -264,11 +315,18 @@ fn register_show_hover_tooltip(app: &AppWindow, ctx: &CallbackContext) {
 fn register_hide_hover_tooltip(app: &AppWindow, ctx: &CallbackContext) {
     let popup = ctx.popup_tooltip.clone();
     let weak_holder = ctx.popup_weak_holder.clone();
+    let app_weak = ctx.app_weak.clone();
     app.on_hide_hover_tooltip(move || {
         let popup_lock = popup.lock().unwrap();
         if let Some(ref popup) = *popup_lock {
             popup.set_show_pending(false);
             popup.set_show_state(false);
+        }
+        // 清除 AppWindow 上的 tooltip 状态（让 search-box 回退到时间/占位符）
+        if let Some(app) = app_weak.upgrade() {
+            app.set_tooltip_visible(false);
+            app.set_tooltip_text("".into());
+            app.set_tooltip_timestamp("".into());
         }
         let weak_guard = weak_holder.lock().unwrap();
         if let Some(ref popup_weak) = *weak_guard {
@@ -627,6 +685,8 @@ fn register_load_favorite_folder(app: &AppWindow, ctx: &CallbackContext) {
                     content_kind: crate::ContentKind::Text,
                     text: text.into(),
                     image: slint::Image::default(),
+                    image_loaded: true, // 文本标记为已加载
+                    image_id: 0,        // 文本无图片
                     timestamp: slint::SharedString::new(),
                     width: 0,
                     height: 0,
@@ -1062,5 +1122,136 @@ fn register_reset_window_size(app: &AppWindow, ctx: &CallbackContext) {
 
             eprintln!("[window] Reset to default size: 280x396");
         }
+    });
+}
+
+fn register_load_visible_images(app: &AppWindow, ctx: &CallbackContext) {
+    let weak = ctx.app_weak.clone();
+    let state = ctx.state.clone();
+
+    app.on_load_visible_images(move |start_index: i32, end_index: i32| {
+        let app = match weak.upgrade() {
+            Some(app) => app,
+            None => return,
+        };
+
+        // 在 UI 线程收集需要加载的图片索引和数据库 id
+        let entries = app.get_clipboard_entries();
+        let mut to_load: Vec<(usize, i64)> = Vec::new();
+
+        for i in start_index..=end_index {
+            if i < 0 {
+                continue;
+            }
+            let idx = i as usize;
+
+            let entry = match entries.row_data(idx) {
+                Some(e) => e,
+                None => continue,
+            };
+
+            // 跳过已加载的图片和文本条目
+            if entry.image_loaded || entry.image_id == 0 {
+                continue;
+            }
+
+            to_load.push((idx, entry.image_id as i64));
+        }
+
+        // 释放 UI 线程持有的非 Send 对象
+        drop(entries);
+        drop(app);
+
+        if to_load.is_empty() {
+            return;
+        }
+
+        // 在后台线程读取所有 BLOB 并解码,只传回 RGBA 字节(即 Send)
+        let weak_for_thread = weak.clone();
+        let state_for_thread = state.clone();
+        std::thread::spawn(move || {
+            for (idx, db_id) in to_load {
+                // 先尝试缩略图(更小,更快);若失败回落到原图
+                let bytes = state_for_thread.get_thumbnail_data(db_id)
+                    .or_else(|| state_for_thread.get_image_data(db_id).map(|(b, _)| b));
+                let Some(bytes) = bytes else {
+                    eprintln!("[load-img] id={} not found in DB", db_id);
+                    continue;
+                };
+
+                if let Ok(img) = image::load_from_memory(&bytes) {
+                    let (w, h) = img.dimensions();
+                    let rgba = img.to_rgba8().to_vec(); // Vec<u8> 是 Send
+
+                    // 回到 UI 线程创建 slint::Image 并更新模型
+                    let weak_clone = weak_for_thread.clone();
+                    let _ = slint::invoke_from_event_loop(move || {
+                        let buffer = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(&rgba, w, h);
+                        let slint_image = slint::Image::from_rgba8(buffer);
+
+                        if let Some(app) = weak_clone.upgrade() {
+                            let entries = app.get_clipboard_entries();
+                            if let Some(mut entry) = entries.row_data(idx) {
+                                entry.image = slint_image;
+                                entry.image_loaded = true;
+                                let _ = entries.set_row_data(idx, entry);
+                            }
+                        }
+                    });
+                } else {
+                    eprintln!("[load-img] decode failed for id={}", db_id);
+                }
+            }
+        });
+    });
+}
+
+fn register_import_from_ditto(app: &AppWindow, ctx: &CallbackContext) {
+    let state = ctx.state.clone();
+    let weak = ctx.app_weak.clone();
+    let entries = ctx.clipboard_entries.clone();
+    let app_data_dir = ctx.app_data_dir.clone();
+    app.on_import_from_ditto(move || {
+        eprintln!("[import] Starting Ditto import...");
+
+        let result = state.import_from_ditto();
+        let (imported, total, err_msg) = result;
+
+        let weak = weak.clone();
+        let entries = entries.clone();
+        let state = state.clone();
+        let app_data_dir = app_data_dir.clone();
+
+        let _ = slint::invoke_from_event_loop(move || {
+            if let Some(app) = weak.upgrade() {
+                let message = if !err_msg.is_empty() {
+                    format!("Ditto 导入失败: {}", err_msg)
+                } else if total == 0 {
+                    "Ditto 数据库中无文本条目".to_string()
+                } else {
+                    format!("从 Ditto 成功导入 {}/{} 条记录", imported, total)
+                };
+
+                eprintln!("[import] Result: {}", message);
+                app.set_toast_message(slint::SharedString::from(message));
+                app.set_toast_visible(true);
+
+                let weak_toast = app.as_weak();
+                slint::Timer::single_shot(std::time::Duration::from_millis(3000), move || {
+                    if let Some(a) = weak_toast.upgrade() {
+                        a.set_toast_visible(false);
+                    }
+                });
+
+                // 刷新 UI 以显示新导入的条目
+                crate::sync::sync_history_to_ui(
+                    &weak,
+                    &state,
+                    &entries,
+                    &app_data_dir,
+                    true,
+                );
+            }
+        });
     });
 }

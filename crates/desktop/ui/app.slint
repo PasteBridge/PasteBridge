@@ -20,9 +20,14 @@ export global MainContent {
 
 export component AppWindow inherits Window {
     title: "PasteBridge";
-    default-font-family: "Microsoft YaHei, PingFang SC, SimHei, Noto Sans CJK SC, sans-serif";
-    preferred-width: 280px;
-    preferred-height: 396px;
+    default-font-family: "JetBrains Mono, Consolas, Courier New, monospace";
+    default-font-size: 13px;
+    // 初始尺寸由 Rust 端通过 set_initial_width/set_initial_height 设置(从持久化配置加载)
+    in-out property <length> initial-width: 280px;
+    in-out property <length> initial-height: 396px;
+    // 把 preferred-width/height 绑定到 initial-*(Slint 在 show() 时采用 preferred 值)
+    preferred-width: self.initial-width;
+    preferred-height: self.initial-height;
     min-width: 200px;
     min-height: 300px;
     max-width: 600px;
@@ -70,7 +75,11 @@ export component AppWindow inherits Window {
     callback toggle-pin();
     callback reorder-favorite(old-index: int, new-index: int);
     callback add-mock-data();
+    callback import-from-ditto();
     callback search-history(query: string);
+    // 图片懒加载回调
+    callback load-visible-images(start-index: int, end-index: int);
+    callback add-device();
 
     in property <[string]> clipboard-history;
     in property <[string]> clipboard-timestamps;
@@ -81,6 +90,8 @@ export component AppWindow inherits Window {
     // Settings panel visibility
     in-out property <bool> settings-visible: false;
     in-out property <bool> share-visible: false;
+    // 本机所有可用 IPv4 地址(由 Rust 端枚举填充),用于同步面板左下角展示
+    in property <[string]> local-ips: [];
 
     // Window positioning mode: 0 = golden ratio centered, 1 = follow mouse cursor (fallback when no input focus detected)
     in-out property <int> window-position-mode: 1;
@@ -99,8 +110,12 @@ export component AppWindow inherits Window {
     in-out property <bool> scroll-indicator-enabled: true;
 
     // Scroll indicator properties
-    in-out property <bool> is-scrolling: false;
     in-out property <int> last-visible-index: 0;
+
+    // Tooltip 状态（来自 popup tooltip 窗口，同步给 search-box 显示）
+    in-out property <string> tooltip-text: "";
+    in-out property <string> tooltip-timestamp: "";
+    in-out property <bool> tooltip-visible: false;
 
     // Favorite items
     in-out property <[FavoriteItem]> favorite-items;
@@ -142,18 +157,16 @@ export component AppWindow inherits Window {
     in-out property <bool> _share-closing: false;
     in-out property <bool> _favorite-closing: false;
 
-    // Bottom indicator optimized properties
+    // Bottom indicator visibility setting (kept for future use; UI was merged into search box)
     in-out property <bool> show-bottom-indicator: true;
-    property <string> _bottom-timestamp: "";
-    property <string> _bottom-counter: "";
-    property <int> _bottom-update-tick: 0;
-    property <int> _bottom-last-tick: 0;
 
     // Size tooltip properties
     in-out property <bool> size-tooltip-visible: false;
     in-out property <int> last-width: 280;
     in-out property <int> last-height: 396;
     property <int> _size-change-tick: 0;
+    // 滚动到顶部触发属性
+    in-out property <bool> scroll-to-top: false;
     property <bool> _size-save-pending: false;
 
     // Mutual exclusion: settings and share are mutually exclusive.
@@ -170,23 +183,12 @@ export component AppWindow inherits Window {
         }
     }
 
-    // Debounced update on scroll or model changes — avoids re-evaluating Text bindings on every model sync
-    changed last-visible-index => { _bottom-update-tick += 1; }
-    changed clipboard-timestamps => { _bottom-update-tick += 1; }
-    changed clipboard-history => { _bottom-update-tick += 1; }
-
-    bottom-display-timer := Timer {
-        interval: 50ms;
-        running: _bottom-update-tick != _bottom-last-tick;
-        triggered => {
-            _bottom-last-tick = _bottom-update-tick;
-            if (root.last-visible-index >= 0 && root.last-visible-index < root.clipboard-timestamps.length) {
-                root._bottom-timestamp = root.clipboard-timestamps[root.last-visible-index];
-            } else {
-                root._bottom-timestamp = "";
-            }
-            root._bottom-counter = (root.last-visible-index + 1) + "/" + root.clipboard-history.length;
-        }
+    // 窗口大小变化时触发持久化保存(防抖 1 秒)
+    changed width => {
+        root._size-save-pending = true;
+    }
+    changed height => {
+        root._size-save-pending = true;
     }
 
     // Size tooltip auto-hide timer
@@ -273,6 +275,8 @@ export component AppWindow inherits Window {
                     start-closing => { root._settings-closing = true; }
                     done-closing => { root._settings-closing = false; }
                     save-setting(key, value) => { root.save-setting(key, value); }
+                    add-mock-data => { root.add-mock-data(); }
+                    import-from-ditto => { root.import-from-ditto(); }
                     open-popup-window(title, content) => { root.open-popup-window(title, content); }
                     restore-focus-enabled-change(enabled) => { root.restore-focus-enabled-change(enabled); }
                     mouse-hover-focus-enabled-change(enabled) => { root.mouse-hover-focus-enabled-change(enabled); }
@@ -285,6 +289,7 @@ export component AppWindow inherits Window {
                     horizontal-stretch: 1;
                     share-visible: root.share-visible;
                     flash: root.share-flash;
+                    local-ips: root.local-ips;
                     start-closing => { root._share-closing = true; }
                     done-closing => { root._share-closing = false; }
                 }
@@ -295,10 +300,10 @@ export component AppWindow inherits Window {
                     clipboard-history: root.current-favorite-folder >= 0 ? root.favorite-folder-contents : root.clipboard-history;
                     clipboard-entries: root.current-favorite-folder >= 0 ? [] : root.clipboard-entries;
                     clipboard-timestamps: root.clipboard-timestamps;
-                    is-scrolling <=> root.is-scrolling;
                     last-visible-index <=> root.last-visible-index;
                     is-dragging <=> root.is-dragging;
                     dragging-index: root.is-dragging ? root.last-visible-index : -1;
+                    dragging-text <=> root.dragging-text;
                     favorite-list-visible <=> root.favorite-list-visible;
                     mouse-window-x <=> root.mouse-window-x;
                     mouse-window-y <=> root.mouse-window-y;
@@ -307,6 +312,9 @@ export component AppWindow inherits Window {
                     current-favorite-folder-name: root.current-favorite-folder-name;
                     search-query <=> root.search-query;
                     has-search-results: root.has-search-results;
+                    tooltip-text: root.tooltip-visible ? root.tooltip-text : "";
+                    tooltip-timestamp: root.tooltip-visible ? root.tooltip-timestamp : "";
+                    scroll-to-top <=> root.scroll-to-top;
                     copy-item(index) => { root.copy-item(index); }
                     set-hovered-index(index) => { root.set-hovered-index(index); }
                     drag-over-favorite-button => { root.drag-over-favorite-button(); }
@@ -322,44 +330,6 @@ export component AppWindow inherits Window {
                     toggle-selection(index) => { root.toggle-selection(index); }
                     clear-multi-select => { root.clear-multi-select(); }
                     search-changed(query) => { root.search-history(query); }
-                }
-            }
-
-            // Scroll position indicator - shows when scrolling (100px, full width, gradient)
-            if !root.settings-visible && !root._settings-closing && !root.share-visible && !root._share-closing && root.show-bottom-indicator: Rectangle {
-                y: parent.height - 100px;
-                x: 0px;
-                width: parent.width;
-                height: 100px;
-                background: @linear-gradient(0deg, rgba(0, 0, 0, 0.8) 0%, rgba(0, 0, 0, 0.0) 100%);
-                opacity: root.is-scrolling ? 1.0 : 0.0;
-                animate opacity {
-                    duration: 200ms;
-                    easing: ease-out;
-                }
-
-                // Left: time display (uses optimized private property, no direct model binding)
-                Text {
-                    text: root._bottom-timestamp;
-                    color: #ffffff;
-                    font-size: 12px;
-                    font-weight: 400;
-                    x: 12px;
-                    y: parent.height - 24px;
-                    vertical-alignment: bottom;
-                }
-
-                // Right: index / total (uses optimized private property, no direct model binding)
-                Text {
-                    text: root._bottom-counter;
-                    color: #ffffff;
-                    font-size: 12px;
-                    font-weight: 400;
-                    x: 12px;
-                    width: parent.width - 24px;
-                    y: parent.height - 24px;
-                    horizontal-alignment: right;
-                    vertical-alignment: bottom;
                 }
             }
 
@@ -399,7 +369,7 @@ export component AppWindow inherits Window {
 
                 size-text := Text {
                     text: round(root.width / 1px) + " × " + round(root.height / 1px);
-                    color: ThemeManager.is-dark ? #ffffff : #1a1a1a;
+                    color: ThemeManager.is-dark ? #e6e6e6 : #1a1a1a;
                     font-size: 12px;
                     font-weight: 500;
                     horizontal-alignment: center;
@@ -415,7 +385,9 @@ export component AppWindow inherits Window {
         }
 
         // Right toolbar (44px wide) - 拖动区域
+        // mode: 同步面板打开时切换为同步模式工具栏
         Toolbar {
+            mode: root.share-visible ? 1 : 0;
             settings-visible: root.settings-visible;
             sort-ascending: root.sort-ascending;
             favorite-list-visible <=> root.favorite-list-visible;
@@ -435,6 +407,7 @@ export component AppWindow inherits Window {
             drag-over-favorite-button => { root.drag-over-favorite-button(); }
             end-drag-to-favorite => { root.end-drag-to-favorite(); }
             cancel-drag-to-favorite => { root.cancel-drag-to-favorite(); }
+            add-device => { root.add-device(); }
         }
     }
 }

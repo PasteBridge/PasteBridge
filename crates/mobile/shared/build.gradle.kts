@@ -37,6 +37,7 @@ kotlin {
     sourceSets {
         androidMain.dependencies {
             implementation(libs.compose.uiToolingPreview)
+            implementation(libs.compose.material.icons.extended)
         }
         commonMain.dependencies {
             implementation(libs.compose.runtime)

@@ -14,10 +14,14 @@ pub struct AppState {
 impl AppState {
     pub fn new(app_data_dir: &PathBuf, max_history_size: usize) -> Arc<Self> {
         let db_path = app_data_dir.join("clipboard.db");
-        let images_dir = app_data_dir.join("images");
 
-        let db = Database::new(&db_path, &images_dir)
+        let db = Database::new(&db_path)
             .expect("Failed to open database");
+
+        // 旧 schema → 新 schema 迁移(幂等,首次启动将旧文件图片读进 BLOB)
+        if let Err(e) = db.migrate_files_to_blob(app_data_dir) {
+            eprintln!("[state] migration failed: {}; continuing with current schema", e);
+        }
 
         let device_id = device::get_device_id(app_data_dir);
 
@@ -34,9 +38,29 @@ impl AppState {
         db.insert_text(&text).ok()
     }
 
-    pub fn push_image(&self, data: &[u8], mime_type: &str, width: i32, height: i32) -> Option<(i64, String)> {
+    /// 存储图片 (原图 + 缩略图) 到数据库 BLOB
+    pub fn push_image(
+        &self,
+        data: &[u8],
+        thumbnail: &[u8],
+        mime_type: &str,
+        width: i32,
+        height: i32,
+    ) -> Option<i64> {
         let db = self.db.lock().unwrap();
-        db.insert_image(data, mime_type, width, height).ok()
+        db.insert_image(data, thumbnail, mime_type, width, height).ok()
+    }
+
+    /// 按 id 读取图片 BLOB 数据 (bytes, mime_type)
+    pub fn get_image_data(&self, id: i64) -> Option<(Vec<u8>, String)> {
+        let db = self.db.lock().unwrap();
+        db.get_image_data(id).ok().flatten()
+    }
+
+    /// 按 id 读取缩略图 BLOB
+    pub fn get_thumbnail_data(&self, id: i64) -> Option<Vec<u8>> {
+        let db = self.db.lock().unwrap();
+        db.get_thumbnail_data(id).ok().flatten()
     }
 
     pub fn get_history(&self, ascending: bool) -> Vec<ClipboardItem> {
@@ -62,6 +86,11 @@ impl AppState {
     pub fn toggle_favorite(&self, id: i64) -> bool {
         let db = self.db.lock().unwrap();
         db.toggle_favorite(id).unwrap_or(false)
+    }
+
+    pub fn update_item_created_at(&self, id: i64) -> bool {
+        let db = self.db.lock().unwrap();
+        db.update_item_created_at(id).is_ok()
     }
 
     pub fn clear_history(&self) -> usize {
@@ -166,5 +195,70 @@ impl AppState {
     pub fn add_item(&self, text: &str) -> i64 {
         let db = self.db.lock().unwrap();
         db.insert_text(text).unwrap_or(-1)
+    }
+
+    /// 从 Ditto 剪贴板管理器导入文本条目。
+    /// 返回 (导入成功数, 总条目数, 错误信息)。
+    pub fn import_from_ditto(&self) -> (usize, usize, String) {
+        // Ditto 数据库可能在 %LOCALAPPDATA% 或 %APPDATA% 下
+        let ditto_db_path = {
+            let candidates = [
+                (
+                    std::env::var("LOCALAPPDATA")
+                        .unwrap_or_else(|_| String::from("C:\\Users\\Default\\AppData\\Local")),
+                    "Ditto",
+                ),
+                (
+                    std::env::var("APPDATA")
+                        .unwrap_or_else(|_| String::from("C:\\Users\\Default\\AppData\\Roaming")),
+                    "Ditto",
+                ),
+            ];
+
+            let mut found = None;
+            for (base, sub) in &candidates {
+                let mut path = std::path::PathBuf::from(base);
+                path.push(sub);
+                path.push("Ditto.db");
+                if path.exists() {
+                    found = Some(path);
+                    break;
+                }
+            }
+            found
+        };
+
+        let ditto_db_path = match ditto_db_path {
+            Some(p) => p,
+            None => {
+                let local = std::path::PathBuf::from(
+                    std::env::var("LOCALAPPDATA")
+                        .unwrap_or_else(|_| String::from("C:\\Users\\Default\\AppData\\Local")),
+                )
+                .join("Ditto")
+                .join("Ditto.db");
+                return (0, 0, format!("Ditto 数据库未找到 (已检查 Local 和 Roaming 路径): {}", local.display()));
+            }
+        };
+
+        // 读取 Ditto 条目
+        let (entries, total, err) = crate::database::read_ditto_entries(&ditto_db_path);
+        if !err.is_empty() {
+            return (0, total, err);
+        }
+
+        if entries.is_empty() {
+            return (0, 0, "Ditto 数据库中无文本条目".to_string());
+        }
+
+        // 导入到本数据库
+        let db = self.db.lock().unwrap();
+        match db.import_ditto_entries(&entries) {
+            Ok(imported) => {
+                eprintln!("[import] Ditto: imported {}/{} entries", imported, total);
+                (imported, total, String::new())
+            }
+            Err(e) => (0, total, format!("导入失败: {}", e)),
+        }
     }
 }

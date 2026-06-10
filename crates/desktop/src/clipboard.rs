@@ -98,7 +98,7 @@ pub fn set_clipboard_text_async(text: String) {
     });
 }
 
-pub fn start_clipboard_monitor<F>(state: Arc<paste_bridge_core::state::AppState>, on_change: F, app_data_dir: std::path::PathBuf)
+pub fn start_clipboard_monitor<F>(state: Arc<paste_bridge_core::state::AppState>, on_change: F)
 where
     F: Fn() + Send + 'static,
 {
@@ -236,46 +236,44 @@ where
                             "[core:clipboard] New image: {}x{}, {} bytes PNG (raw RGBA {} bytes)",
                             width, height, png_bytes.len(), raw_rgba.len()
                         );
+
+                        // 在内存中生成缩略图(最大 200px 宽,保持宽高比),不再写文件
+                        let thumb_png = if let Some(thumb_img) = image::RgbaImage::from_raw(
+                            width as u32, height as u32, raw_rgba
+                        ) {
+                            let thumb_size = 200u32;
+                            let (thumb_w, thumb_h) = if width > height {
+                                (thumb_size, (thumb_size as f64 * height as f64 / width as f64) as u32)
+                            } else {
+                                ((thumb_size as f64 * width as f64 / height as f64) as u32, thumb_size)
+                            };
+                            let thumb_resized = image::imageops::resize(
+                                &thumb_img,
+                                thumb_w.max(1),
+                                thumb_h.max(1),
+                                image::imageops::FilterType::Lanczos3,
+                            );
+                            encode_rgba_to_png(
+                                thumb_resized.width(),
+                                thumb_resized.height(),
+                                thumb_resized.as_raw(),
+                            ).unwrap_or_default()
+                        } else {
+                            Vec::new()
+                        };
+
                         match state.push_image(
                             &png_bytes,
+                            &thumb_png,
                             "image/png",
                             width as i32,
                             height as i32,
                         ) {
-                            Some((id, path)) => {
+                            Some(id) => {
                                 eprintln!(
-                                    "[core:clipboard] Image stored id={} path={}",
-                                    id, path
+                                    "[core:clipboard] Image stored id={} ({} bytes original, {} bytes thumb)",
+                                    id, png_bytes.len(), thumb_png.len()
                                 );
-
-                                // 生成缩略图(最大 200px 宽,保持宽高比)
-                                let thumb_size = 200u32;
-                                let (thumb_w, thumb_h) = if width > height {
-                                    (thumb_size, (thumb_size as f64 * height as f64 / width as f64) as u32)
-                                } else {
-                                    ((thumb_size as f64 * width as f64 / height as f64) as u32, thumb_size)
-                                };
-                                if let Some(thumb_img) = image::RgbaImage::from_raw(width as u32, height as u32, raw_rgba) {
-                                    let thumb_resized = image::imageops::resize(
-                                        &thumb_img,
-                                        thumb_w.max(1),
-                                        thumb_h.max(1),
-                                        image::imageops::FilterType::Lanczos3,
-                                    );
-                                    if let Ok(thumb_png) = encode_rgba_to_png(
-                                        thumb_resized.width(),
-                                        thumb_resized.height(),
-                                        thumb_resized.as_raw(),
-                                    ) {
-                                        let thumb_path = path.replace("images/", "images/thumb_");
-                                        let thumb_abs = app_data_dir.join(&thumb_path);
-                                        if let Some(parent) = thumb_abs.parent() {
-                                            let _ = std::fs::create_dir_all(parent);
-                                        }
-                                        let _ = std::fs::write(&thumb_abs, &thumb_png);
-                                    }
-                                }
-
                                 need_on_change = true;
                             }
                             None => {
@@ -326,7 +324,7 @@ fn encode_rgba_to_png(width: u32, height: u32, rgba: &[u8]) -> Result<Vec<u8>, S
     Ok(out)
 }
 
-/// 同步读取 PNG 文件并写入系统剪贴板(图片)。
+/// 同步写入图片字节到系统剪贴板(图片)。
 ///
 /// 必须同步等待完成,因为调用方需要在图片确实在剪贴板上之后
 /// 才向目标窗口发送 Ctrl+V。
@@ -334,13 +332,10 @@ fn encode_rgba_to_png(width: u32, height: u32, rgba: &[u8]) -> Result<Vec<u8>, S
 /// # Returns
 /// * `Ok((w, h))` - 成功,返回图片尺寸
 /// * `Err(String)` - 失败信息
-pub fn set_clipboard_image_blocking(png_path: &std::path::Path) -> Result<(u32, u32), String> {
-    // 读取 + 解码 PNG
-    let png_data = std::fs::read(png_path)
-        .map_err(|e| format!("读取文件失败 {}: {}", png_path.display(), e))?;
-
-    let img = image::load_from_memory(&png_data)
-        .map_err(|e| format!("PNG 解码失败 {}: {}", png_path.display(), e))?
+pub fn set_clipboard_image_blocking(png_bytes: &[u8]) -> Result<(u32, u32), String> {
+    // 解码 PNG → RGBA
+    let img = image::load_from_memory(png_bytes)
+        .map_err(|e| format!("PNG 解码失败: {}", e))?
         .to_rgba8();
     let (w, h) = img.dimensions();
     let raw: Vec<u8> = img.into_raw();
@@ -359,12 +354,7 @@ pub fn set_clipboard_image_blocking(png_path: &std::path::Path) -> Result<(u32, 
                 };
                 match clipboard.set_image(img_data) {
                     Ok(_) => {
-                        eprintln!(
-                            "set_clipboard_image: 写入 {}x{} 图片自 {}",
-                            w,
-                            h,
-                            png_path.display()
-                        );
+                        eprintln!("set_clipboard_image: 写入 {}x{} 图片 ({} bytes)", w, h, png_bytes.len());
                         // 记录此次写入的 RGBA 数据的 hash 和大小,
                         // 供监听线程的 skip 分支直接使用,无需重新读取剪贴板
                         EXPECTED_IMAGE_HASH.store(content_hash(&raw), Ordering::SeqCst);
@@ -394,15 +384,4 @@ pub fn set_clipboard_image_blocking(png_path: &std::path::Path) -> Result<(u32, 
         }
     }
     Err(last_err)
-}
-
-/// 异步版本(向后兼容):在新线程中调用同步版本。
-/// 内部已经处理好锁和重试。
-pub fn set_clipboard_image(png_path: &std::path::Path) {
-    let png_path = png_path.to_path_buf();
-    thread::spawn(move || {
-        if let Err(e) = set_clipboard_image_blocking(&png_path) {
-            eprintln!("set_clipboard_image 最终失败 ({}): {}", png_path.display(), e);
-        }
-    });
 }
