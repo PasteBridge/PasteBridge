@@ -1,5 +1,32 @@
 use serde::{Serialize, Deserialize};
 
+/// 跨平台错误类型。UniFFI 要求 `Result<_, _>` 的 Err 必须是
+/// `#[derive(uniffi::Error)]` 标注的具体 enum/class,不能用裸 `String`。
+#[derive(Debug, thiserror::Error, uniffi::Error)]
+pub enum PasteBridgeError {
+    /// 通用错误,消息直接给移动端 toast。
+    #[error("{message}")]
+    Generic { message: String },
+}
+
+impl PasteBridgeError {
+    pub fn generic(message: impl Into<String>) -> Self {
+        Self::Generic { message: message.into() }
+    }
+}
+
+impl From<String> for PasteBridgeError {
+    fn from(message: String) -> Self {
+        Self::Generic { message }
+    }
+}
+
+impl From<&str> for PasteBridgeError {
+    fn from(message: &str) -> Self {
+        Self::Generic { message: message.to_string() }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ContentType {
