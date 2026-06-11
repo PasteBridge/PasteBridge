@@ -1,169 +1,159 @@
 package org.pastebridge.discovery
 
 import android.content.Context
-import android.net.nsd.NsdManager
-import android.net.nsd.NsdServiceInfo
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import uniffi.pastebridge.core.Discovery
+import uniffi.pastebridge.core.DiscoveryListener
+import uniffi.pastebridge.core.PasteBridgeException
+import uniffiDiscovered = uniffi.pastebridge.core.DiscoveredPeer
 
 /**
- * Android 端 mDNS 实现：基于 [NsdManager] 的 `registerService` + `discoverServices`。
+ * Android-side [DiscoveryService] implementation.
  *
- * 关键点：
- * - Android 的 NSD 不允许同一 service name 在同进程重复注册，因此 service name 加上端口后缀
- *   保证多次 register 不冲突（与 Rust 端 service_name 策略一致）
- * - browse 的回调在 NSD 内部线程触发，需要 `Handler(Looper.getMainLooper())` 切回主线程再分发给
- *   调用方，避免在 Compose UI 中触碰 state 时崩溃
+ * 直接委托给 UniFFI 生成的 Rust 绑定 (`uniffi.pastebridge.core.Discovery`),
+ * 与桌面端共用同一份 mDNS 注册/浏览逻辑,服务类型 `_pastebridge._tcp`、
+ * TXT 字段 (`device_id` / `platform`) 全部对齐。
  *
- * 使用方式：在 Activity.onCreate 中调用 [init] 注入 Context，再调用 [register] / [browse]。
+ * 与之前 NsdManager 实现的差异:
+ * - 不再使用 Android `NsdManager` 也不依赖 `NSD_SERVICE` 系统服务。
+ * - 后台线程由 Rust 端 [Discovery] 持有,Kotlin 侧只需要实现
+ *   [DiscoveryListener] 把回调转发到 [DiscoveredPeer] 流。
+ *
+ * 注: [DiscoveredPeer] (common 层) 与 `uniffi.pastebridge.core.DiscoveredPeer`
+ * (UniFFI 生成) 同名但属于不同包;回调桥接处做一次浅拷贝。
  */
 actual class DiscoveryService actual constructor() {
 
-    private var nsdManager: NsdManager? = null
-
-    private var registeredServiceName: String? = null
-    private var discoveryListener: NsdManager.DiscoveryListener? = null
     private val mainHandler = Handler(Looper.getMainLooper())
 
+    @Volatile
+    private var rustDiscovery: Discovery? = null
+
+    @Volatile
+    private var nativeListener: DiscoveryListener? = null
+
+    @Volatile
+    private var callbackBridge: CallbackBridge? = null
+
     /**
-     * 注入 Android [Context] 并创建 [NsdManager]。必须在 [register] / [browse] 之前调用。
-     * 多次调用以最后一次为准。
+     * 保留 init 入口供 Android 端手动注入 Context (例如在 Activity 中)。
+     * UniFFI 路径下不再需要 NsdManager,但保留函数签名以兼容现有调用方。
      */
-    fun init(context: Context) {
-        nsdManager =
-            context.applicationContext.getSystemService(Context.NSD_SERVICE) as NsdManager
+    fun init(@Suppress("UNUSED_PARAMETER") context: Context) {
+        Log.i(TAG, "init() called; DiscoveryService now backed by UniFFI Rust mDNS")
     }
 
     actual fun register(deviceId: String, platform: String, port: Int) {
-        val manager = nsdManager ?: error("DiscoveryService.init(context) not called yet")
-        if (registeredServiceName != null) {
-            Log.w(TAG, "register called while already registered, skipping")
-            return
-        }
-        val serviceName = "PasteBridge-${deviceId.take(12)}-$port"
-        val info = NsdServiceInfo().apply {
-            serviceName = serviceName
-            serviceType = SERVICE_TYPE
-            port = port
-            txtRecord = mapOf(
-                "device_id" to deviceId,
-                "platform" to platform,
+        try {
+            val discovery = ensureDiscovery()
+            // 让 Rust 端自行查询本机所有 IPv4 接口地址;若以后需要更精细的
+            // 地址过滤(例如排除虚拟网卡),可在 Rust 端加 [Discovery::register]
+            // 的重载接受地址列表。
+            val addresses: List<String> = emptyList()
+            discovery.register(
+                deviceId = deviceId,
+                platform = platform,
+                port = port.toUShort(),
+                addresses = addresses,
             )
+            Log.i(TAG, "register ok: deviceId=$deviceId platform=$platform port=$port")
+        } catch (e: PasteBridgeException) {
+            Log.e(TAG, "register failed: ${e.message}", e)
         }
-        manager.registerService(info, NsdManager.PROTOCOL_DNS_SD, registrationListener)
     }
 
-    actual fun browse(onDiscovered: (DiscoveredPeer) -> Unit) {
-        val manager = nsdManager ?: error("DiscoveryService.init(context) not called yet")
-        if (discoveryListener != null) {
-            Log.w(TAG, "browse called while already browsing, skipping")
-            return
+    actual fun browse(
+        onDiscovered: (DiscoveredPeer) -> Unit,
+        onLost: (DiscoveredPeer) -> Unit,
+    ) {
+        try {
+            val discovery = ensureDiscovery()
+            val bridge = CallbackBridge(
+                mainHandler = mainHandler,
+                onDiscovered = onDiscovered,
+                onLost = onLost,
+            )
+            callbackBridge = bridge
+            nativeListener = DiscoveryListenerProxy(bridge)
+            discovery.browse(nativeListener!!)
+            Log.i(TAG, "browse started")
+        } catch (e: PasteBridgeException) {
+            Log.e(TAG, "browse failed: ${e.message}", e)
         }
-        val listener = object : NsdManager.DiscoveryListener {
-            override fun onDiscoveryStarted(regType: String) {
-                Log.d(TAG, "onDiscoveryStarted: $regType")
-            }
-
-            override fun onDiscoveryStopped(serviceType: String) {
-                Log.d(TAG, "onDiscoveryStopped: $serviceType")
-            }
-
-            override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) {
-                Log.e(TAG, "onStartDiscoveryFailed: $serviceType code=$errorCode")
-            }
-
-            override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) {
-                Log.e(TAG, "onStopDiscoveryFailed: $serviceType code=$errorCode")
-            }
-
-            override fun onServiceFound(service: NsdServiceInfo) {
-                Log.d(TAG, "onServiceFound: ${service.serviceName}")
-                if (service.serviceType.contains(SERVICE_TYPE_WILDCARD) && service.serviceName != registeredServiceName) {
-                    manager.resolveService(service, object : NsdManager.ResolveListener {
-                        override fun onResolveFailed(failedService: NsdServiceInfo, errorCode: Int) {
-                            Log.e(TAG, "onResolveFailed: ${failedService.serviceName} code=$errorCode")
-                        }
-
-                        override fun onServiceResolved(resolved: NsdServiceInfo) {
-                            val peer = resolved.toPeer()
-                            Log.d(
-                                TAG,
-                                "onServiceResolved: ${peer.deviceId} @ ${peer.addresses}:${peer.port}",
-                            )
-                            mainHandler.post { onDiscovered(peer) }
-                        }
-                    })
-                }
-            }
-
-            override fun onServiceLost(service: NsdServiceInfo) {
-                Log.d(TAG, "onServiceLost: ${service.serviceName}")
-            }
-        }
-        discoveryListener = listener
-        manager.discoverServices(SERVICE_TYPE_WILDCARD, NsdManager.PROTOCOL_DNS_SD, listener)
     }
 
     actual fun stop() {
-        nsdManager?.let { manager ->
-            if (registeredServiceName != null) {
-                try {
-                    manager.unregisterService(registrationListener)
-                } catch (e: Exception) {
-                    Log.w(TAG, "unregisterService failed: ${e.message}")
-                }
-                registeredServiceName = null
+        try {
+            rustDiscovery?.let {
+                // 触发 Rust 端 daemon shutdown;浏览线程收到 SearchStopped 后会退出。
+                it.shutdown()
             }
-            discoveryListener?.let {
-                try {
-                    manager.stopServiceDiscovery(it)
-                } catch (e: Exception) {
-                    Log.w(TAG, "stopServiceDiscovery failed: ${e.message}")
-                }
-            }
-        }
-        discoveryListener = null
-    }
-
-    private val registrationListener = object : NsdManager.RegistrationListener {
-        override fun onServiceRegistered(name: String) {
-            Log.d(TAG, "onServiceRegistered: $name")
-            registeredServiceName = name
-        }
-
-        override fun onRegistrationFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
-            Log.e(TAG, "onRegistrationFailed: ${serviceInfo.serviceName} code=$errorCode")
-        }
-
-        override fun onServiceUnregistered(arg0: NsdServiceInfo) {
-            Log.d(TAG, "onServiceUnregistered: ${arg0.serviceName}")
-            registeredServiceName = null
-        }
-
-        override fun onUnregistrationFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
-            Log.e(TAG, "onUnregistrationFailed: ${serviceInfo.serviceName} code=$errorCode")
+        } catch (e: PasteBridgeException) {
+            Log.w(TAG, "shutdown raised: ${e.message}")
+        } finally {
+            rustDiscovery = null
+            nativeListener = null
+            callbackBridge = null
         }
     }
 
-    private fun NsdServiceInfo.toPeer(): DiscoveredPeer {
-        val attributes = attributes ?: emptyMap()
-        val deviceId = attributes["device_id"]?.let { String(it) } ?: serviceName
-        val platform = attributes["platform"]?.let { String(it) } ?: ""
-        val addresses = host?.let { listOf(it.removePrefix("/")) } ?: emptyList()
-        return DiscoveredPeer(
-            deviceId = deviceId,
-            platform = platform,
-            addresses = addresses,
-            port = port,
-            fullname = "$serviceName.$serviceType",
-        )
+    private fun ensureDiscovery(): Discovery {
+        rustDiscovery?.let { return it }
+        val d = Discovery()
+        rustDiscovery = d
+        return d
     }
+
+    /**
+     * 把 Rust 侧触发的回调桥接到 KMP 共享层 (currentThread -> mainThread),
+     * 供 [DiscoveryService] 继续把事件推送到 `onDiscovered` / `onLost`。
+     */
+    private class CallbackBridge(
+        private val mainHandler: Handler,
+        private val onDiscovered: (DiscoveredPeer) -> Unit,
+        private val onLost: (DiscoveredPeer) -> Unit,
+    ) {
+        fun dispatchDiscovered(peer: uniffiDiscovered) {
+            val mapped = peer.toCommon()
+            mainHandler.post { onDiscovered(mapped) }
+        }
+
+        fun dispatchLost(peer: uniffiDiscovered) {
+            val mapped = peer.toCommon()
+            mainHandler.post { onLost(mapped) }
+        }
+    }
+
+    /**
+     * UniFFI 生成的 [DiscoveryListener] 是 JNA callback,强引用被本类字段
+     * ([nativeListener]) 持有,避免 callback 引用被 GC 释放。
+     */
+    private class DiscoveryListenerProxy(
+        private val bridge: CallbackBridge,
+    ) : DiscoveryListener {
+        override fun onDiscovered(peer: uniffiDiscovered) {
+            bridge.dispatchDiscovered(peer)
+        }
+
+        override fun onLost(peer: uniffiDiscovered) {
+            bridge.dispatchLost(peer)
+        }
+    }
+
+    /** UniFFI 生成的 [uniffiDiscovered] -> common 层 [DiscoveredPeer] 浅拷贝。 */
+    private fun uniffiDiscovered.toCommon(): DiscoveredPeer = DiscoveredPeer(
+        deviceId = deviceId,
+        platform = platform,
+        addresses = addresses.toList(),
+        port = port.toInt(),
+        fullname = fullname,
+    )
 
     companion object {
-        private const val TAG = "PBDiscovery"
-        // Android NSD API 期望的服务类型是 `_pastebridge._tcp.` (末尾点号，不含 `local.`)
-        private const val SERVICE_TYPE = "_pastebridge._tcp."
-        private const val SERVICE_TYPE_WILDCARD = "_pastebridge._tcp."
+        private const val TAG = "DiscoveryService"
     }
 }
+
+private fun Int.toUShort(): UShort = this.toUShort()

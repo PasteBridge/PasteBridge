@@ -23,3 +23,12 @@ export struct ClipboardEntryData {
     height: int,            // 图片高度; 文本项为 0
     file-size: int,         // 文件大小(字节)
 }
+
+// mDNS 发现的局域网 PasteBridge 设备
+// 由 Rust 端在 browse 回调里推过来
+export struct DiscoveredDevice {
+    device-id: string,      // 唯一设备 ID(用于去重)
+    platform: string,       // android / ios / desktop / smoke
+    address: string,        // IPv4 字符串(取 addresses 第一个)
+    port: int,              // HTTP API 端口
+}

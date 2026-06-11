@@ -34,6 +34,40 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use global_hotkey::{GlobalHotKeyManager, hotkey::{HotKey, Modifiers, Code}};
+use paste_bridge_core::discovery::{DiscoveredPeer, DiscoveryListener};
+use slint::{ComponentHandle, Weak};
+
+/// 桌面端 [DiscoveryListener] 适配: 维护去重表 + 把变更推给 Slint UI。
+pub struct DesktopDiscoveryListener {
+    pub weak: Weak<crate::AppWindow>,
+    pub discovered: Arc<std::sync::Mutex<Vec<DiscoveredPeer>>>,
+}
+
+impl DiscoveryListener for DesktopDiscoveryListener {
+    fn on_discovered(&self, peer: DiscoveredPeer) {
+        eprintln!(
+            "[mdns] callback: peer={} platform={} addrs={:?} port={} fullname={}",
+            peer.device_id, peer.platform, peer.addresses, peer.port, peer.fullname
+        );
+        let mut list = self.discovered.lock().unwrap();
+        if !list.iter().any(|p| p.fullname == peer.fullname) {
+            list.push(peer);
+            eprintln!("[mdns] new peer added; total={}; pushing to Slint", list.len());
+            drop(list);
+            push_discovered_to_slint(&self.weak, &self.discovered);
+        } else {
+            eprintln!("[mdns] duplicate peer, skip");
+        }
+    }
+
+    fn on_lost(&self, peer: DiscoveredPeer) {
+        eprintln!("[mdns] lost peer: {}", peer.fullname);
+        let mut list = self.discovered.lock().unwrap();
+        list.retain(|p| p.fullname != peer.fullname);
+        drop(list);
+        push_discovered_to_slint(&self.weak, &self.discovered);
+    }
+}
 
 fn main() {
     std::env::set_var("SLINT_BACKEND", "winit-skia");
@@ -346,6 +380,11 @@ fn main() {
         });
     });
 
+    // mDNS 发现的设备列表:Rust 端累计,推到 Slint SharePanel 显示
+    // 用 Mutex 保护,browse 回调写 / 回调读 都要抢锁
+    let discovered_devices: Arc<std::sync::Mutex<Vec<paste_bridge_core::discovery::DiscoveredPeer>>> =
+        Arc::new(std::sync::Mutex::new(Vec::new()));
+
     let callback_ctx = callbacks::CallbackContext {
         app_weak: app_weak.clone(),
         state: state.clone(),
@@ -353,13 +392,14 @@ fn main() {
         popup_tooltip: popup_tooltip_clone.clone(),
         popup_weak_holder: popup_weak_holder_clone.clone(),
         app_data_dir: Arc::new(app_data_dir.clone()),
+        discovered_devices: discovered_devices.clone(),
     };
     callbacks::register_all(&app, &callback_ctx);
 
     let api_state = state.clone();
     std::thread::spawn(move || {
-        let mut server = paste_bridge_core::api::ApiServer::new(18792);
-        if let Err(e) = server.start(api_state) {
+        let server = paste_bridge_core::api::ApiServer::new(18792);
+        if let Err(e) = server.start_with_state(api_state) {
             eprintln!("[api] Server error: {}", e);
         }
     });
@@ -370,16 +410,19 @@ fn main() {
             let device_id = state.device_id.clone();
             let local_ips = net::list_local_ipv4();
 
-            if let Err(e) = discovery.register(&device_id, "desktop", 18792, &local_ips) {
+            if let Err(e) = discovery.register(device_id.clone(), "desktop".to_string(), 18792, local_ips.clone()) {
                 eprintln!("[mdns] register failed: {}", e);
             }
 
-            if let Err(e) = discovery.browse(|peer| {
-                eprintln!(
-                    "[mdns] callback: peer={} platform={} addrs={:?} port={}",
-                    peer.device_id, peer.platform, peer.addresses, peer.port
-                );
-            }) {
+            let weak_for_discovery = app_weak.clone();
+            let discovered_arc = discovered_devices.clone();
+            // 适配新 API: 桌面端实现 [DiscoveryListener] trait,把
+            // 「去重 + 推 Slint」逻辑放在 on_discovered 里。
+            let listener = DesktopDiscoveryListener {
+                weak: weak_for_discovery,
+                discovered: discovered_arc,
+            };
+            if let Err(e) = discovery.browse(Box::new(listener)) {
                 eprintln!("[mdns] browse failed: {}", e);
             }
 
@@ -398,4 +441,38 @@ fn main() {
     popup::create_popup_tooltip(&popup_tooltip, &popup_weak_holder);
 
     dummy_window::create_and_run();
+}
+
+/// 把当前已发现的设备列表同步到 Slint SharePanel。
+/// 从 browse 回调和 sync-with-device 回调里调用,必须在 Slint 主事件循环线程里操作。
+fn push_discovered_to_slint(
+    weak: &slint::Weak<AppWindow>,
+    list: &Arc<std::sync::Mutex<Vec<paste_bridge_core::discovery::DiscoveredPeer>>>,
+) {
+    let weak = weak.clone();
+    let list = list.clone();
+    // Slint 的所有 UI 操作必须在 event loop 线程里做,直接跨线程 upgrade+set 会失败/卡死
+    let _ = slint::invoke_from_event_loop(move || {
+        let guard = list.lock().unwrap();
+        eprintln!("[mdns-slint] push on event loop: list_len={}", guard.len());
+        let ui: Vec<crate::DiscoveredDevice> = guard
+            .iter()
+            .map(|p| crate::DiscoveredDevice {
+                device_id: p.device_id.clone().into(),
+                platform: p.platform.clone().into(),
+                address: p.addresses.first().cloned().unwrap_or_default().into(),
+                port: p.port as i32,
+            })
+            .collect();
+        for d in &ui {
+            eprintln!("[mdns-slint]   -> {} {} {}:{}", d.device_id, d.platform, d.address, d.port);
+        }
+        drop(guard);
+        if let Some(app) = weak.upgrade() {
+            app.set_discovered_devices(std::rc::Rc::new(slint::VecModel::from(ui)).into());
+            eprintln!("[mdns-slint] set_discovered_devices done");
+        } else {
+            eprintln!("[mdns-slint] weak upgrade failed (app destroyed?)");
+        }
+    });
 }

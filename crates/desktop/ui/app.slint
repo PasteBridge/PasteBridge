@@ -1,4 +1,4 @@
-﻿import { ScrollView, ListView } from "std-widgets.slint";
+import { ScrollView, ListView } from "std-widgets.slint";
 import { ThemeManager, DarkTheme, LightTheme } from "themes.slint";
 import { FavoriteItem, ClipboardEntryData, ContentKind } from "types.slint";
 import { PanelHeader } from "widgets/panel_header.slint";
@@ -12,6 +12,7 @@ import { SettingsPanel } from "panels/settings_panel.slint";
 import { SharePanel } from "panels/share_panel.slint";
 import { HistoryPanel } from "panels/history_panel.slint";
 import { AnimationTokens } from "animations.slint";
+import { DiscoveredDevice } from "types.slint";
 
 export global MainContent {
     in-out property <float> opacity: 1.0;
@@ -77,6 +78,8 @@ export component AppWindow inherits Window {
     callback add-mock-data();
     callback import-from-ditto();
     callback search-history(query: string);
+    // 用户在 SharePanel 点了某台设备的「同步」,把 device-id 传回 Rust
+    callback sync-with-device(device-id: string);
     // 图片懒加载回调
     callback load-visible-images(start-index: int, end-index: int);
     callback add-device();
@@ -86,6 +89,8 @@ export component AppWindow inherits Window {
     in property <[ClipboardEntryData]> clipboard-entries;
     in-out property <bool> main-content-fade-out: false;
     in property <string> placeholder-text;
+    // mDNS 发现的局域网设备(由 Rust browse 回调累计,SharePanel 显示)
+    in property <[DiscoveredDevice]> discovered-devices: [];
 
     // Settings panel visibility
     in-out property <bool> settings-visible: false;
@@ -290,6 +295,8 @@ export component AppWindow inherits Window {
                     share-visible: root.share-visible;
                     flash: root.share-flash;
                     local-ips: root.local-ips;
+                    discovered-devices: root.discovered-devices;
+                    sync-with-device(device-id) => { root.sync-with-device(device-id); }
                     start-closing => { root._share-closing = true; }
                     done-closing => { root._share-closing = false; }
                 }

@@ -17,7 +17,7 @@ kotlin {
             isStatic = true
         }
     }
-    
+
     androidLibrary {
        namespace = "org.pastebridge.app.shared"
        compileSdk = libs.versions.android.compileSdk.get().toInt()

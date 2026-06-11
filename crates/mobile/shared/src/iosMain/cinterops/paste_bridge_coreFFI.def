@@ -1,0 +1,23 @@
+// paste_bridge_coreFFI.def
+//
+// KMP/Native cinterop definition: 引用 UniFFI 生成的 C-ABI 头文件与模块映射。
+//
+// 使用前提 (在 macOS 上执行):
+// 1. cargo build --target aarch64-apple-ios --release
+//    cargo build --target aarch64-apple-ios-sim --release
+//    cargo build --target x86_64-apple-ios --release
+//    -> 产物: target/{target}/release/libpaste_bridge_core.a
+// 2. uniffi-bindgen generate --library <dylib> --language swift --out-dir iosApp/UniFFI
+// 3. Xcode 把生成的 .swift / .h / .modulemap 一起加进 target sources
+// 4. KMP shared module 链接 libpaste_bridge_core.a + UniFFI 头文件
+
+headers = paste_bridge_coreFFI.h
+headerFilter = paste_bridge_coreFFI.h
+
+// 不需要 cNamespaces,因为 UniFFI 已经把符号用 ffi_paste_bridge_core_ 前缀化。
+
+// 对接 iOS 系统调用
+use "Darwin"
+
+// 链接 UniFFI 编译出的静态库
+linkerOpts = "-lpaste_bridge_core"

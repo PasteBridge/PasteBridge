@@ -1,11 +1,16 @@
 import { ThemeManager } from "../themes.slint";
 import { PanelFadeContainer } from "../widgets/panel_fade.slint";
+import { DiscoveredDevice } from "../types.slint";
 
 export component SharePanel {
     in property <bool> share-visible;
     in-out property <bool> flash;
     // 本机所有 IPv4 地址(由 Rust 端通过 if_addrs 枚举并填入)
     in property <[string]> local-ips: [];
+    // mDNS 发现的局域网 PasteBridge 设备(Rust browse 回调累计去重)
+    in property <[DiscoveredDevice]> discovered-devices: [];
+    // 设备被点击,传回 device-id 供 Rust 触发同步动作
+    callback sync-with-device(device-id: string);
     out property <bool> closing: container.closing;
     callback start-closing();
     callback done-closing();
@@ -69,19 +74,127 @@ export component SharePanel {
                 background: ThemeManager.is-dark ? rgba(255, 255, 255, 0.1) : rgba(0, 0, 0, 0.1);
             }
 
-            // ─── 中部: 设备占位(占满剩余空间,把 IP 列表挤到底部) ───
+            // ─── 中部: 已发现的局域网设备列表(占满剩余空间) ───
             VerticalLayout {
                 horizontal-stretch: 1;
                 vertical-stretch: 1;
-                spacing: 12px;
-                alignment: center;
+                spacing: 8px;
+                alignment: start;
 
+                // 列表标题
                 Text {
-                    text: "暂无同步设备";
-                    color: ThemeManager.is-dark ? rgba(255, 255, 255, 0.5) : rgba(0, 0, 0, 0.4);
-                    font-size: 13px;
-                    horizontal-alignment: center;
+                    text: "已发现 " + root.discovered-devices.length + " 台设备";
+                    color: ThemeManager.is-dark ? rgba(255, 255, 255, 0.7) : rgba(0, 0, 0, 0.6);
+                    font-size: 12px;
+                    font-weight: 500;
+                    horizontal-alignment: left;
                     vertical-alignment: center;
+                }
+
+                // 设备列表
+                if root.discovered-devices.length > 0: VerticalLayout {
+                    spacing: 0px;
+                    horizontal-stretch: 1;
+                    alignment: start;
+
+                    for dev[idx] in root.discovered-devices: Rectangle {
+                        width: parent.width;
+                        height: 56px;
+                        horizontal-stretch: 1;
+                        background: dev-area.pressed
+                            ? (ThemeManager.is-dark ? rgba(0, 120, 212, 0.18) : rgba(0, 120, 212, 0.10))
+                            : (ThemeManager.is-dark ? rgba(255, 255, 255, 0.04) : rgba(0, 0, 0, 0.03));
+                        border-radius: 6px;
+                        border-width: 1px;
+                        border-color: ThemeManager.is-dark ? rgba(255, 255, 255, 0.06) : rgba(0, 0, 0, 0.05);
+
+                        // 平台色圆点
+                        Rectangle {
+                            x: 12px;
+                            y: (parent.height - self.height) / 2;
+                            width: 10px;
+                            height: 10px;
+                            border-radius: 5px;
+                            background: dev.platform == "android" ? #3ddc84 :
+                                (dev.platform == "ios" ? #007aff :
+                                (dev.platform == "desktop" ? #ff9800 : #9e9e9e));
+                        }
+
+                        // 设备 ID + 平台
+                        Text {
+                            x: 32px;
+                            y: 8px;
+                            width: parent.width - 32px - 60px;
+                            height: 18px;
+                            text: dev.device-id;
+                            color: ThemeManager.is-dark ? #ffffff : #1a1a1a;
+                            font-size: 13px;
+                            font-weight: 500;
+                            overflow: elide;
+                            horizontal-alignment: left;
+                            vertical-alignment: center;
+                        }
+
+                        // 地址 + 端口
+                        Text {
+                            x: 32px;
+                            y: 28px;
+                            width: parent.width - 32px - 60px;
+                            height: 18px;
+                            text: dev.platform + " · " + dev.address + ":" + dev.port;
+                            color: ThemeManager.is-dark ? rgba(255, 255, 255, 0.55) : rgba(0, 0, 0, 0.5);
+                            font-size: 11px;
+                            font-family: "JetBrains Mono, Consolas, monospace";
+                            overflow: elide;
+                            horizontal-alignment: left;
+                            vertical-alignment: center;
+                        }
+
+                        // 右侧 "同步" 小徽章
+                        Rectangle {
+                            x: parent.width - 50px;
+                            y: (parent.height - self.height) / 2;
+                            width: 38px;
+                            height: 22px;
+                            border-radius: 4px;
+                            background: ThemeManager.is-dark ? rgba(0, 120, 212, 0.3) : rgba(0, 120, 212, 0.12);
+
+                            Text {
+                                text: "同步";
+                                color: ThemeManager.is-dark ? #9ec6ff : #0078d4;
+                                font-size: 10px;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                        }
+
+                        dev-area := TouchArea {
+                            width: 100%;
+                            height: 100%;
+                            clicked => {
+                                root.sync-with-device(dev.device-id);
+                            }
+                        }
+                    }
+                }
+
+                // 空状态
+                if root.discovered-devices.length == 0: Rectangle {
+                    width: parent.width;
+                    height: 80px;
+                    horizontal-stretch: 1;
+
+                    Text {
+                        x: 0;
+                        y: 0;
+                        width: parent.width;
+                        height: parent.height;
+                        text: "正在搜索局域网设备…\n\n请确认对端已打开 PasteBridge 且与本机在同一 Wi-Fi";
+                        color: ThemeManager.is-dark ? rgba(255, 255, 255, 0.5) : rgba(0, 0, 0, 0.4);
+                        font-size: 12px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
                 }
             }
 

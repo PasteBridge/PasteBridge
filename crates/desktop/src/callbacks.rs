@@ -16,6 +16,10 @@ pub struct CallbackContext {
     pub popup_tooltip: Arc<std::sync::Mutex<Option<crate::PopupTooltipWindow>>>,
     pub popup_weak_holder: Arc<std::sync::Mutex<Option<slint::Weak<crate::PopupTooltipWindow>>>>,
     pub app_data_dir: Arc<std::path::PathBuf>,
+    /// mDNS browse callback accumulates dedup'd peers here. The sync-with-device
+    /// callback looks them up by id; the share panel reads the list.
+    pub discovered_devices:
+        Arc<std::sync::Mutex<Vec<paste_bridge_core::discovery::DiscoveredPeer>>>,
 }
 
 pub fn register_all(app: &AppWindow, ctx: &CallbackContext) {
@@ -53,6 +57,7 @@ pub fn register_all(app: &AppWindow, ctx: &CallbackContext) {
     register_load_visible_images(app, ctx);
     register_add_device(app);
     register_import_from_ditto(app, ctx);
+    register_sync_with_device(app, ctx);
 }
 
 fn register_add_device(app: &AppWindow) {
@@ -1252,6 +1257,117 @@ fn register_import_from_ditto(app: &AppWindow, ctx: &CallbackContext) {
                     true,
                 );
             }
+        });
+    });
+}
+
+/// User clicked the Sync badge for a peer in the SharePanel.
+///
+/// 把任务丢到后台线程跑 HTTP pull / push,主线程只更新 toast。
+/// 完成后通过 [slint::invoke_from_event_loop] 把结果弹回主线程,
+/// 避免在 Slint worker thread 上直接 set_* 属性导致断言失败。
+fn register_sync_with_device(app: &AppWindow, ctx: &CallbackContext) {
+    let list = ctx.discovered_devices.clone();
+    let state = ctx.state.clone();
+    let entries_lock = ctx.clipboard_entries.clone();
+    let app_data_dir = ctx.app_data_dir.clone();
+    let weak = ctx.app_weak.clone();
+    app.on_sync_with_device(move |device_id: slint::SharedString| {
+        let id = device_id.to_string();
+        eprintln!("[sync] sync-with-device clicked: device_id={}", id);
+
+        // 取对端快照 (要 clone 一份, 避免持有 mutex 跨线程)
+        let peer_opt = {
+            let guard = list.lock().unwrap();
+            guard.iter().find(|p| p.device_id == id).cloned()
+        };
+
+        let Some(peer) = peer_opt else {
+            eprintln!("[sync] -> device_id={} not found in discovered list", id);
+            if let Some(a) = weak.upgrade() {
+                a.set_toast_message(slint::SharedString::from(format!(
+                    "Device {} not found",
+                    id
+                )));
+                a.set_toast_visible(true);
+                let w = a.as_weak();
+                slint::Timer::single_shot(std::time::Duration::from_millis(2000), move || {
+                    if let Some(x) = w.upgrade() {
+                        x.set_toast_visible(false);
+                    }
+                });
+            }
+            return;
+        };
+
+        eprintln!(
+            "[sync] -> target {} @ {}:{} (platform={})",
+            peer.device_id,
+            peer.addresses.first().map(String::as_str).unwrap_or("?"),
+            peer.port,
+            peer.platform,
+        );
+
+        // 立刻给一个 "Syncing..." 的轻提示,避免用户感觉按钮没反应
+        if let Some(a) = weak.upgrade() {
+            a.set_toast_message(slint::SharedString::from(format!("Syncing with {}...", id)));
+            a.set_toast_visible(true);
+        }
+
+        // 后台线程跑实际 HTTP pull / push
+        let weak_after = weak.clone();
+        let id_for_report = id.clone();
+        let state_for_thread = state.clone();
+        let state_for_async = state.clone();
+        let entries_for_sync = entries_lock.clone();
+        let data_dir_for_sync = app_data_dir.clone();
+        std::thread::spawn(move || {
+            let report = paste_bridge_core::sync_device::sync_with_device(state_for_thread, &peer);
+
+            // 把结果搬回主线程,刷新 toast + 历史 UI
+            let weak = weak_after;
+            let state_for_async = state_for_async;
+            let entries_for_sync = entries_for_sync;
+            let data_dir_for_sync = data_dir_for_sync;
+            let _ = slint::invoke_from_event_loop(move || {
+                let Some(a) = weak.upgrade() else { return; };
+
+                let msg = match &report.error {
+                    Some(e) => format!(
+                        "Sync {} failed: pulled +{}/{} pushed {} ({}).",
+                        id_for_report, report.pulled_added, report.pulled_total, report.pushed, e
+                    ),
+                    None => format!(
+                        "Sync {} done: pulled +{}/{} pushed {}.",
+                        id_for_report, report.pulled_added, report.pulled_total, report.pushed
+                    ),
+                };
+                eprintln!("[sync] report: {}", msg);
+                a.set_toast_message(slint::SharedString::from(msg));
+                a.set_toast_visible(true);
+
+                // 拉到了新条目,触发一次历史 UI 刷新
+                if report.pulled_added > 0 {
+                    let weak_for_async = a.as_weak();
+                    crate::sync::sync_history_to_ui_async(
+                        weak_for_async,
+                        state_for_async.clone(),
+                        entries_for_sync.clone(),
+                        (*data_dir_for_sync).clone(),
+                        true,
+                    );
+                }
+
+                let w = a.as_weak();
+                slint::Timer::single_shot(
+                    std::time::Duration::from_millis(3500),
+                    move || {
+                        if let Some(x) = w.upgrade() {
+                            x.set_toast_visible(false);
+                        }
+                    },
+                );
+            });
         });
     });
 }

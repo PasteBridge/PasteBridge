@@ -1,0 +1,7 @@
+module paste_bridge_coreFFI {
+    header "paste_bridge_coreFFI.h"
+    export *
+    use "Darwin"
+    use "_Builtin_stdbool"
+    use "_Builtin_stdint"
+}

@@ -1,72 +1,96 @@
-//! Standalone smoke test for the mDNS discovery module.
+//! mDNS 互通 smoke test。
 //!
-//! 启动后会在局域网注册 `_pastebridge._tcp` 服务并开始浏览，
-//! 任何其他 PasteBridge 实例（或任何标准 mDNS 浏览器，例如 `dns-sd -B`）都能看到本机。
-//!
-//! 运行方式：
-//! ```sh
-//! cargo run --example mdns_smoke -- --device-id my-test-device
+//! 用法:
+//! ```
+//! cargo run --example mdns_smoke -- <device_id> <platform> <port>
+//! # 在另一个终端:
+//! cargo run --example mdns_smoke -- <other_device_id> <other_platform> <other_port>
 //! ```
 //!
-//! 在另一台机器上同时运行同一个例子验证双向发现。
-//! 退出方式：按 Ctrl+C —— Windows 下程序会被直接终止，由 Drop 自动反注册。
+//! 两个进程会互相发现对方 `_pastebridge._tcp.local.` 服务,本进程触发
+//! `on_discovered` 回调时把对方信息打印到 stderr。
+//!
+//! 这份 smoke test 走的是与 Android UniFFI 路径完全一致的
+//! [`paste_bridge_core::discovery::Discovery`] 代码,任何 mdns-sd 的协议
+//! bug 都会同时影响 Android 与本测试。
 
-use std::env;
-use std::process::ExitCode;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
-use std::thread;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use paste_bridge_core::discovery::{Discovery, DiscoveredPeer};
+use mdns_sd::DaemonEvent;
+use paste_bridge_core::discovery::{DiscoveredPeer, Discovery, DiscoveryListener};
 
-fn main() -> ExitCode {
-    let args: Vec<String> = env::args().collect();
-    let device_id = args
-        .iter()
-        .position(|a| a == "--device-id")
-        .and_then(|i| args.get(i + 1))
-        .cloned()
-        .unwrap_or_else(|| "smoke-test-device".to_string());
+struct StdoutListener {
+    seen: Arc<Mutex<Vec<DiscoveredPeer>>>,
+}
 
-    eprintln!("[smoke] device_id = {}", device_id);
-
-    let discovery = match Discovery::new() {
-        Ok(d) => d,
-        Err(e) => {
-            eprintln!("[smoke] Failed to init discovery: {}", e);
-            return ExitCode::FAILURE;
+impl DiscoveryListener for StdoutListener {
+    fn on_discovered(&self, peer: DiscoveredPeer) {
+        let mut list = self.seen.lock().unwrap();
+        if list.iter().any(|p| p.fullname == peer.fullname) {
+            eprintln!(
+                "[smoke] duplicate, skip: fullname={} device_id={}",
+                peer.fullname, peer.device_id
+            );
+            return;
         }
-    };
-
-    let addresses: Vec<String> = Vec::new();
-    if let Err(e) = discovery.register(&device_id, "smoke", 18792, &addresses) {
-        eprintln!("[smoke] register failed: {}", e);
-        return ExitCode::FAILURE;
-    }
-
-    let found_count = Arc::new(AtomicUsize::new(0));
-    let found_count_clone = found_count.clone();
-    if let Err(e) = discovery.browse(move |peer: DiscoveredPeer| {
-        let n = found_count_clone.fetch_add(1, Ordering::SeqCst) + 1;
         eprintln!(
-            "[smoke] #{} discovered: device_id={} platform={} addrs={:?} port={} fullname={}",
-            n, peer.device_id, peer.platform, peer.addresses, peer.port, peer.fullname
+            "[smoke] DISCOVERED peer: device_id={} platform={} addrs={:?} port={} fullname={}",
+            peer.device_id, peer.platform, peer.addresses, peer.port, peer.fullname
         );
-    }) {
-        eprintln!("[smoke] browse failed: {}", e);
-        return ExitCode::FAILURE;
+        list.push(peer);
     }
 
-    eprintln!("[smoke] running for 30s, Ctrl+C to exit early");
-    for _ in 0..150 {
-        thread::sleep(Duration::from_millis(200));
+    fn on_lost(&self, peer: DiscoveredPeer) {
+        eprintln!("[smoke] LOST peer: fullname={}", peer.fullname);
     }
+}
+
+fn main() {
+    let mut args = std::env::args().skip(1);
+    let device_id = args.next().unwrap_or_else(|| "smoke-device-a".to_string());
+    let platform = args.next().unwrap_or_else(|| "desktop".to_string());
+    let port: u16 = args
+        .next()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(18792);
 
     eprintln!(
-        "[smoke] exit, total peers discovered: {}",
-        found_count.load(Ordering::SeqCst)
+        "[smoke] starting: device_id={} platform={} port={}",
+        device_id, platform, port
     );
+
+    let discovery = Discovery::new().expect("Discovery::new");
+    discovery
+        .register(
+            device_id.clone(),
+            platform.clone(),
+            port,
+            vec![],
+        )
+        .expect("register");
+
+    // 接 monitor 通道把 daemon 内部错误也打出来,便于排查多接口/防火墙问题。
+    let monitor = discovery
+        .daemon_handle()
+        .monitor()
+        .expect("Failed to monitor");
+    std::thread::spawn(move || {
+        for ev in monitor.iter() {
+            if let DaemonEvent::Error(e) = ev {
+                eprintln!("[smoke] daemon error: {}", e);
+            }
+        }
+    });
+
+    let listener = StdoutListener {
+        seen: Arc::new(Mutex::new(Vec::new())),
+    };
+    discovery.browse(Box::new(listener)).expect("browse");
+
+    eprintln!("[smoke] browsing... sleep 15s then shutdown");
+    std::thread::sleep(Duration::from_secs(15));
+
     discovery.shutdown();
-    ExitCode::SUCCESS
+    eprintln!("[smoke] done");
 }

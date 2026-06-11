@@ -22,12 +22,17 @@ expect class DiscoveryService() {
     fun register(deviceId: String, platform: String, port: Int)
 
     /**
-     * 启动后台浏览。每次发现远端 PasteBridge 设备时回调 [onDiscovered]。
-     * 同一设备可能触发多次回调，由调用方按 deviceId 去重。
+     * 启动后台浏览。每次发现远端 PasteBridge 设备时回调 [onDiscovered],
+     * 设备下线时回调 [onLost](NSD 在远端关闭/离开网络时会主动推送 service lost)。
+     * 同一设备可能触发多次回调,由调用方按 deviceId 去重。
      *
      * @param onDiscovered 主线程分发的发现回调 (平台实现负责切线程)
+     * @param onLost 主线程分发的下线回调,设备名/IP/端口齐全;不关心可传 {}
      */
-    fun browse(onDiscovered: (DiscoveredPeer) -> Unit)
+    fun browse(
+        onDiscovered: (DiscoveredPeer) -> Unit,
+        onLost: (DiscoveredPeer) -> Unit = {},
+    )
 
     /** 释放所有资源。建议在 Activity / ViewController onDestroy 中调用。 */
     fun stop()

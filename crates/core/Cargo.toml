@@ -3,6 +3,11 @@ name = "paste_bridge_core"
 version = "0.1.0"
 edition = "2021"
 
+# cdylib: 让移动端 (Android .so / iOS .a) 通过 UniFFI 加载
+# rlib:  桌面端 (Rust) 直接依赖源码
+[lib]
+crate-type = ["rlib", "cdylib"]
+
 [dependencies]
 rusqlite = { version = "0.32", features = ["bundled"] }
 sha2 = "0.10"
@@ -12,3 +17,11 @@ serde_json = "1.0"
 tiny_http = "0.12"
 arboard = "3.4"
 mdns-sd = "0.17"
+# 用于在 Discovery::new 之后, 枚举本机 NIC 决定 mDNS 绑定哪个物理接口.
+# 选 getifaddrs (mmastrac) 是因为它在 Windows 上能拿到 friendly name (如 "WLAN"),
+# if-addrs 0.10 只能拿到 GUID, mdns-sd 用它 enable_interface 不生效.
+getifaddrs = "0.5"
+thiserror = "1.0"
+ureq = { version = "2.10", default-features = false, features = ["json"] }
+# uniffi 0.31 在纯 proc-macro 模式下用 `setup_scaffolding!()`,不需要 build.rs。
+uniffi = "0.31"

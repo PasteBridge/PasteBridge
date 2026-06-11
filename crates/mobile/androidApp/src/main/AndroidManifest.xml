@@ -1,6 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!--
+      PasteBridge 多端同步剪贴板需要的权限：
+      - INTERNET: NsdManager 注册与浏览需要走 socket,Android 14+ 强制要求显式声明
+      - ACCESS_NETWORK_STATE: NsdManager 内部检查网络可达性
+      - ACCESS_WIFI_STATE / CHANGE_WIFI_MULTICAST_STATE: 部分 ROM 需要
+        CHANGE_WIFI_MULTICAST_STATE 才能接收 mDNS 组播
+    -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"

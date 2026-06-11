@@ -13,17 +13,12 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
 
-        // 注入 Context 给 DiscoveryService,后续 browse/register 即可用
+        // 注入 Context 给 DiscoveryService,后续 register/browse 即可用
         DiscoveryServiceProvider.init(applicationContext)
-        // 自动注册本机 + 浏览局域网其他设备 (设备 ID 可换成 SettingsView 的随机 UUID)
+        // 只在这里 register,browse 交给 App() 内的 DiscoveryBanner:
+        // 让 Compose 的 peers state 跟着 mDNS 回调更新,Sheet 才能拿到数据
         DiscoveryServiceProvider.tryGet(applicationContext).apply {
             register(deviceId = "android-smoke", platform = "android", port = 18792)
-            browse { peer ->
-                android.util.Log.d(
-                    "PBApp",
-                    "discovered: ${peer.deviceId} ${peer.platform} @ ${peer.addresses}:${peer.port}",
-                )
-            }
         }
 
         setContent {
