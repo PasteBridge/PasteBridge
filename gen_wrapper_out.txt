@@ -1,0 +1,9 @@
+Starting a Gradle Daemon (subsequent builds will be faster)
+Daemon JVM discovery is an incubating feature.
+Calculating task graph as no cached configuration is available for tasks: wrapper --gradle-version=8.13 --distribution-type=bin
+Type-safe project accessors is an incubating feature.
+> Task :wrapper
+
+BUILD SUCCESSFUL in 1m 54s
+1 actionable task: 1 executed
+Configuration cache entry stored.

@@ -35,6 +35,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -50,6 +51,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
+import org.pastebridge.discovery.DiscoveredPeer
+import org.pastebridge.discovery.DiscoveryService
+import org.pastebridge.discovery.platformDiscovery
 
 private data class ClipboardItem(
     val id: Int,
@@ -111,8 +115,54 @@ fun App() {
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background),
         ) {
-            ClipboardList(items = mockClipboardItems)
+            Column(modifier = Modifier.fillMaxSize()) {
+                DiscoveryBanner()
+                ClipboardList(items = mockClipboardItems)
+            }
         }
+    }
+}
+
+/**
+ * 顶部横幅：实时显示已发现的局域网 PasteBridge 设备。
+ * - 无设备时显示「正在搜索…」
+ * - 发现设备时列出 deviceId 与平台
+ *
+ * browse 回调在 Android 端已切到主线程,因此直接修改 mutableStateOf 安全。
+ */
+@Composable
+private fun DiscoveryBanner() {
+    val discovery = platformDiscovery()
+    val peers by remember(discovery) {
+        androidx.compose.runtime.mutableStateOf<List<DiscoveredPeer>>(emptyList())
+    }
+    androidx.compose.runtime.DisposableEffect(discovery) {
+        if (discovery != null) {
+            discovery.browse { peer ->
+                peers.value = (peers.value + peer).distinctBy { it.deviceId }
+            }
+        }
+        onDispose { /* DiscoveryService.stop() 由 Activity onDestroy 调用 */ }
+    }
+
+    val bg = if (peers.value.isEmpty()) {
+        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+    } else {
+        MaterialTheme.colorScheme.primaryContainer
+    }
+    val text = if (peers.value.isEmpty()) {
+        "🔍 正在搜索局域网设备…"
+    } else {
+        "📡 已发现 ${peers.value.size} 台设备: " +
+            peers.value.joinToString(" · ") { "${it.deviceId.take(8)} (${it.platform})" }
+    }
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(bg)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+    ) {
+        Text(text = text, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface)
     }
 }
 

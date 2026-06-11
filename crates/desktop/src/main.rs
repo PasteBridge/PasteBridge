@@ -41,7 +41,7 @@ fn main() {
     std::env::set_var("ICU4X_DATA_DIR", "");
 
     // 性能调试：持续刷新以暴露瓶颈，并在每个窗口叠加帧率显示
-    std::env::set_var("SLINT_DEBUG_PERFORMANCE", "refresh_full_speed,overlay");
+    // std::env::set_var("SLINT_DEBUG_PERFORMANCE", "refresh_full_speed,overlay");
 
     // Enable Skia advanced font rendering
     std::env::set_var("SKIA_FONTS_PATH", ""); // Use system fonts
@@ -363,6 +363,33 @@ fn main() {
             eprintln!("[api] Server error: {}", e);
         }
     });
+
+    // 启动 mDNS 服务发现：注册自身 + 浏览局域网其他 PasteBridge 实例
+    match paste_bridge_core::discovery::Discovery::new() {
+        Ok(discovery) => {
+            let device_id = state.device_id.clone();
+            let local_ips = net::list_local_ipv4();
+
+            if let Err(e) = discovery.register(&device_id, "desktop", 18792, &local_ips) {
+                eprintln!("[mdns] register failed: {}", e);
+            }
+
+            if let Err(e) = discovery.browse(|peer| {
+                eprintln!(
+                    "[mdns] callback: peer={} platform={} addrs={:?} port={}",
+                    peer.device_id, peer.platform, peer.addresses, peer.port
+                );
+            }) {
+                eprintln!("[mdns] browse failed: {}", e);
+            }
+
+            // 让 discovery 句柄常驻到程序退出 (Drop 时自动反注册)
+            std::mem::forget(discovery);
+        }
+        Err(e) => {
+            eprintln!("[mdns] init failed: {} (mDNS 不可用)", e);
+        }
+    }
 
     tooltip::start_tooltip_zorder_monitor();
 
