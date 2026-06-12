@@ -1,18 +1,18 @@
-package org.pastebridge.discovery
+﻿package org.pastebridge.discovery
 
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
-import uniffi.pastebridge.core.Discovery
-import uniffi.pastebridge.core.DiscoveryListener
-import uniffi.pastebridge.core.PasteBridgeException
-import uniffiDiscovered = uniffi.pastebridge.core.DiscoveredPeer
+import uniffi.paste_bridge_core.Discovery
+import uniffi.paste_bridge_core.DiscoveryListener
+import uniffi.paste_bridge_core.PasteBridgeException
+import uniffiDiscovered = uniffi.paste_bridge_core.DiscoveredPeer
 
 /**
  * Android-side [DiscoveryService] implementation.
  *
- * 直接委托给 UniFFI 生成的 Rust 绑定 (`uniffi.pastebridge.core.Discovery`),
+ * 直接委托给 UniFFI 生成的 Rust 绑定 (`uniffi.paste_bridge_core.Discovery`),
  * 与桌面端共用同一份 mDNS 注册/浏览逻辑,服务类型 `_pastebridge._tcp`、
  * TXT 字段 (`device_id` / `platform`) 全部对齐。
  *
@@ -21,7 +21,7 @@ import uniffiDiscovered = uniffi.pastebridge.core.DiscoveredPeer
  * - 后台线程由 Rust 端 [Discovery] 持有,Kotlin 侧只需要实现
  *   [DiscoveryListener] 把回调转发到 [DiscoveredPeer] 流。
  *
- * 注: [DiscoveredPeer] (common 层) 与 `uniffi.pastebridge.core.DiscoveredPeer`
+ * 注: [DiscoveredPeer] (common 层) 与 `uniffi.paste_bridge_core.DiscoveredPeer`
  * (UniFFI 生成) 同名但属于不同包;回调桥接处做一次浅拷贝。
  */
 actual class DiscoveryService actual constructor() {
@@ -157,3 +157,4 @@ actual class DiscoveryService actual constructor() {
 }
 
 private fun Int.toUShort(): UShort = this.toUShort()
+

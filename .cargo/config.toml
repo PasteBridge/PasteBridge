@@ -1,5 +1,7 @@
-## Intentionally empty: do not force-link `msvcprt` here.
-## Rely on the Visual Studio environment (vcvars64) to set LIB paths
-## so the linker uses the MSVC runtime matching your toolset.
+[target.x86_64-linux-android]
+linker = "C:/Users/Administrator/AppData/Local/Android/Sdk/ndk/26.3.11579264/toolchains/llvm/prebuilt/windows-x86_64/bin/x86_64-linux-android24-clang.cmd"
+ar = "C:/Users/Administrator/AppData/Local/Android/Sdk/ndk/26.3.11579264/toolchains/llvm/prebuilt/windows-x86_64/bin/llvm-ar.exe"
 
-# If you need to add rustflags, ensure paths have no spaces or use short paths.
+[target.i686-linux-android]
+linker = "C:/Users/Administrator/AppData/Local/Android/Sdk/ndk/26.3.11579264/toolchains/llvm/prebuilt/windows-x86_64/bin/i686-linux-android24-clang.cmd"
+ar = "C:/Users/Administrator/AppData/Local/Android/Sdk/ndk/26.3.11579264/toolchains/llvm/prebuilt/windows-x86_64/bin/llvm-ar.exe"

@@ -1,4 +1,4 @@
-import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+﻿import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
@@ -38,6 +38,8 @@ kotlin {
         androidMain.dependencies {
             implementation(libs.compose.uiToolingPreview)
             implementation(libs.compose.material.icons.extended)
+            // UniFFI 在 Android 端使用 JNA 与 Rust 通信
+            implementation("net.java.dev.jna:jna:5.13.0")
         }
         commonMain.dependencies {
             implementation(libs.compose.runtime)

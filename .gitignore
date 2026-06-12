@@ -17,3 +17,6 @@ pastebridge.code-workspace
 *.exp
 *.pdb
 crates/mobile/gradle/wrapper/gradle-wrapper.jar
+
+# IDE artifacts
+Untitled-1.txt

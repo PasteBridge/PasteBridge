@@ -1,4 +1,4 @@
-package org.pastebridge.app
+﻿package org.pastebridge.app
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -278,7 +278,22 @@ fun App() {
                         }
                     }
                 },
-                onDismiss = { showDeviceList.value = false },
+                    onSyncPeer = { peer ->
+                        DebugLog.add("PBApp", "sync tap: ${peer.deviceId.take(12)}")
+                        logVersion.value = logVersion.value + 1
+                        coroutineScope.launch {
+                            val result = syncWithPeerCommon(
+                                deviceId = peer.deviceId,
+                                platform = peer.platform,
+                                addresses = peer.addresses,
+                                port = peer.port,
+                                fullname = peer.fullname,
+                            )
+                            DebugLog.add("PBApp", "sync done: " + result.replace("\n", " / "))
+                            logVersion.value = logVersion.value + 1
+                        }
+                    },
+                    onDismiss = { showDeviceList.value = false },
             )
         }
     }
@@ -519,6 +534,7 @@ private fun DeviceListSheet(
     peers: androidx.compose.runtime.MutableState<List<DiscoveredPeer>>,
     visible: androidx.compose.runtime.MutableState<Boolean>,
     onRefresh: () -> Unit,
+    onSyncPeer: (DiscoveredPeer) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -584,7 +600,8 @@ private fun DeviceListSheet(
                             key = { it.deviceId },
                         ) { peer ->
                             DeviceRow(peer = peer, onClick = {
-                                // 后续接: 推送本机最新剪贴板 / 拉取对端历史
+                                // 触发一次端到端 sync: 拉对端历史 + 推本机最新文本
+                                onSyncPeer(peer)
                                 onDismiss()
                             })
                             HorizontalDivider(
@@ -1072,5 +1089,6 @@ private fun ClipboardItemCard(
         }
     }
 }
+
 
 

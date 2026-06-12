@@ -8,6 +8,12 @@ edition = "2021"
 [lib]
 crate-type = ["rlib", "cdylib"]
 
+[features]
+# `desktop-clipboard` 启用 arboard, 默认开。
+# Android / iOS 端不需要, 关掉以避免拉进 desktop-only 依赖。
+default = ["desktop-clipboard"]
+desktop-clipboard = ["dep:arboard"]
+
 [dependencies]
 rusqlite = { version = "0.32", features = ["bundled"] }
 sha2 = "0.10"
@@ -15,7 +21,7 @@ hex = "0.4"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tiny_http = "0.12"
-arboard = "3.4"
+arboard = { version = "3.4", optional = true }
 mdns-sd = "0.17"
 # 用于在 Discovery::new 之后, 枚举本机 NIC 决定 mDNS 绑定哪个物理接口.
 # 选 getifaddrs (mmastrac) 是因为它在 Windows 上能拿到 friendly name (如 "WLAN"),
