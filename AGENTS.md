@@ -1,43 +1,55 @@
-<!-- gitnexus:start -->
-# GitNexus — Code Intelligence
+# AGENTS.md
 
-This project is indexed by GitNexus as **pastebridge** (871 symbols, 1440 relationships, 50 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+> 本文件适用于本项目内所有 AI 编程代理(Claude / Cursor / Copilot / Cline / Continue / Aider 等)。
+> 项目已通过 **GitNexus** MCP 索引(代号 `pastebridge`),使用图谱工具可显著降低上下文 token 消耗。
 
-> If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
+## 设置
 
-## Always Do
+如果当前 agent 已配置 `gitnexus` MCP 服务,直接调用 `gitnexus_*` 工具即可。
+未配置的 agent 可在终端运行:
 
-- **MUST run impact analysis before editing any symbol.** Before modifying a function, class, or method, run `gitnexus_impact({target: "symbolName", direction: "upstream"})` and report the blast radius (direct callers, affected processes, risk level) to the user.
-- **MUST run `gitnexus_detect_changes()` before committing** to verify your changes only affect expected symbols and execution flows.
-- **MUST warn the user** if impact analysis returns HIGH or CRITICAL risk before proceeding with edits.
-- When exploring unfamiliar code, use `gitnexus_query({query: "concept"})` to find execution flows instead of grepping. It returns process-grouped results ranked by relevance.
-- When you need full context on a specific symbol — callers, callees, which execution flows it participates in — use `gitnexus_context({name: "symbolName"})`.
+```bash
+npx gitnexus analyze   # 仅在 GitNexus 提示索引过期时执行
+```
 
-## Never Do
+## 核心工具(必用 5 个)
 
-- NEVER edit a function, class, or method without first running `gitnexus_impact` on it.
-- NEVER ignore HIGH or CRITICAL risk warnings from impact analysis.
-- NEVER rename symbols with find-and-replace — use `gitnexus_rename` which understands the call graph.
-- NEVER commit changes without running `gitnexus_detect_changes()` to check affected scope.
+| 工具 | 用途 | 关键参数 |
+|------|------|---------|
+| `gitnexus_query` | 按概念检索执行流(替代 grep) | `query`, `limit` |
+| `gitnexus_context` | 获取单个符号的 360° 视图(调用方/被调方/所属流程) | `name` 或 `uid` |
+| `gitnexus_impact` | 改动前评估爆炸半径(直接影响/风险等级) | `target`, `direction="upstream"` |
+| `gitnexus_detect_changes` | 提交前验证改动是否只影响预期符号/流程 | `scope="unstaged"` |
+| `gitnexus_rename` | 跨文件协调重命名(基于图谱,优于 sed) | `symbol_name`, `new_name`, `dry_run=true` |
 
-## Resources
+## 工作规约
 
-| Resource | Use for |
-|----------|---------|
-| `gitnexus://repo/pastebridge/context` | Codebase overview, check index freshness |
-| `gitnexus://repo/pastebridge/clusters` | All functional areas |
-| `gitnexus://repo/pastebridge/processes` | All execution flows |
-| `gitnexus://repo/pastebridge/process/{name}` | Step-by-step execution trace |
+### 必须做
 
-## CLI
+- 修改任何函数/类/方法前,**先调用 `gitnexus_impact`**,把爆炸半径(直接调用方、影响的流程、风险等级)告知用户。
+- 提交前**必须调用 `gitnexus_detect_changes`** 验证改动范围。
+- 探索未知代码时,优先用 `gitnexus_query` 检索执行流,而不是全文 grep。
+- 需要某符号的完整上下文时,调用 `gitnexus_context`,避免读整文件。
 
-| Task | Read this skill file |
-|------|---------------------|
-| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md` |
-| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
-| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md` |
-| Rename / extract / split / refactor | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
-| Tools, resources, schema reference | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md` |
-| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
+### 严禁做
 
-<!-- gitnexus:end -->
+- 未经 `gitnexus_impact` 评估就修改函数/类/方法。
+- 忽略 `gitnexus_impact` 返回的 **HIGH / CRITICAL** 风险警告。
+- 用 find-and-replace 重命名符号 — 必须用 `gitnexus_rename`。
+- 不调用 `gitnexus_detect_changes` 就提交。
+
+## 风险阈值
+
+- `LOW` — 可直接修改
+- `MEDIUM` — 修改前简要说明影响范围
+- `HIGH` — 必须列出受影响流程,等待用户确认
+- `CRITICAL` — 必须拆分改动,先沟通方案
+
+## 索引信息
+
+- 仓库代号: `pastebridge`
+- 符号数: 871
+- 关系数: 1440
+- 执行流: 50
+
+> 任何 agent 都可读取此文件。修改前请保留本节以便其他 agent 识别。
