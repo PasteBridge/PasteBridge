@@ -11,6 +11,12 @@ import org.pastebridge.discovery.DiscoveryServiceProvider
 import org.pastebridge.sync.SyncService
 
 class MainActivity : ComponentActivity() {
+    companion object {
+        init {
+            // Preload JNA native dispatcher from APK native libs (lib/<abi>/libjnidispatch.so)
+            System.loadLibrary("jnidispatch")
+        }
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)

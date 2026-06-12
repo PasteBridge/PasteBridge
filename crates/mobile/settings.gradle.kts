@@ -1,4 +1,4 @@
-rootProject.name = "PasteBridge"
+﻿rootProject.name = "PasteBridge"
 enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
 
 pluginManagement {
@@ -24,6 +24,8 @@ dependencyResolutionManagement {
                 includeGroupAndSubgroups("com.google")
             }
         }
+        // Local patched JNA jar must come FIRST to override Maven Central
+        maven { url = uri("$rootDir/../../target/maven") }
         mavenCentral()
         maven { url = uri("https://maven.pkg.jetbrains.space/public/p/compose/dev") }
     }

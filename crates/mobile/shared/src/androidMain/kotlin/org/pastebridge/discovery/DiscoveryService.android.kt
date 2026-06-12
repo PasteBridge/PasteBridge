@@ -7,7 +7,7 @@ import android.util.Log
 import uniffi.paste_bridge_core.Discovery
 import uniffi.paste_bridge_core.DiscoveryListener
 import uniffi.paste_bridge_core.PasteBridgeException
-import uniffiDiscovered = uniffi.paste_bridge_core.DiscoveredPeer
+
 
 /**
  * Android-side [DiscoveryService] implementation.
@@ -115,13 +115,13 @@ actual class DiscoveryService actual constructor() {
         private val onDiscovered: (DiscoveredPeer) -> Unit,
         private val onLost: (DiscoveredPeer) -> Unit,
     ) {
-        fun dispatchDiscovered(peer: uniffiDiscovered) {
-            val mapped = peer.toCommon()
+        fun dispatchDiscovered(peer: uniffi.paste_bridge_core.DiscoveredPeer) {
+            val mapped = uniffiDiscoveredToCommon(peer)
             mainHandler.post { onDiscovered(mapped) }
         }
 
-        fun dispatchLost(peer: uniffiDiscovered) {
-            val mapped = peer.toCommon()
+        fun dispatchLost(peer: uniffi.paste_bridge_core.DiscoveredPeer) {
+            val mapped = uniffiDiscoveredToCommon(peer)
             mainHandler.post { onLost(mapped) }
         }
     }
@@ -133,23 +133,15 @@ actual class DiscoveryService actual constructor() {
     private class DiscoveryListenerProxy(
         private val bridge: CallbackBridge,
     ) : DiscoveryListener {
-        override fun onDiscovered(peer: uniffiDiscovered) {
+        override fun onDiscovered(peer: uniffi.paste_bridge_core.DiscoveredPeer) {
             bridge.dispatchDiscovered(peer)
         }
 
-        override fun onLost(peer: uniffiDiscovered) {
+        override fun onLost(peer: uniffi.paste_bridge_core.DiscoveredPeer) {
             bridge.dispatchLost(peer)
         }
     }
 
-    /** UniFFI 生成的 [uniffiDiscovered] -> common 层 [DiscoveredPeer] 浅拷贝。 */
-    private fun uniffiDiscovered.toCommon(): DiscoveredPeer = DiscoveredPeer(
-        deviceId = deviceId,
-        platform = platform,
-        addresses = addresses.toList(),
-        port = port.toInt(),
-        fullname = fullname,
-    )
 
     companion object {
         private const val TAG = "DiscoveryService"
@@ -158,3 +150,11 @@ actual class DiscoveryService actual constructor() {
 
 private fun Int.toUShort(): UShort = this.toUShort()
 
+/** UniFFI 生成的 [uniffi.paste_bridge_core.DiscoveredPeer] -> common 层 [DiscoveredPeer] 浅拷贝。 */
+private fun uniffiDiscoveredToCommon(peer: uniffi.paste_bridge_core.DiscoveredPeer): DiscoveredPeer = DiscoveredPeer(
+    deviceId = peer.deviceId,
+    platform = peer.platform,
+    addresses = peer.addresses.toList(),
+    port = peer.port.toInt(),
+    fullname = peer.fullname,
+)

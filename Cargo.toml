@@ -1,4 +1,4 @@
-[workspace]
+﻿[workspace]
 resolver = "2"
 members = [
     "crates/core",
@@ -96,3 +96,6 @@ lto = true
 codegen-units = 1
 panic = "abort"
 strip = true
+
+
+

@@ -1,4 +1,4 @@
-ï»¿import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
@@ -22,7 +22,7 @@ kotlin {
        namespace = "org.pastebridge.app.shared"
        compileSdk = libs.versions.android.compileSdk.get().toInt()
        minSdk = libs.versions.android.minSdk.get().toInt()
-    
+
        compilerOptions {
            jvmTarget = JvmTarget.JVM_11
        }
@@ -33,13 +33,13 @@ kotlin {
            isIncludeAndroidResources = true
        }
     }
-    
+
     sourceSets {
         androidMain.dependencies {
             implementation(libs.compose.uiToolingPreview)
-            implementation(libs.compose.material.icons.extended)
-            // UniFFI åœ¨ Android ç«¯ä½¿ç”¨ JNA ä¸Ž Rust é€šä¿¡
+            // UniFFI ÔÚ Android ¶ËÊ¹ÓÃ JNA Óë Rust Í¨ÐÅ
             implementation("net.java.dev.jna:jna:5.13.0")
+            implementation(libs.compose.material.icons.extended)
         }
         commonMain.dependencies {
             implementation(libs.compose.runtime)
@@ -59,4 +59,13 @@ kotlin {
 
 dependencies {
     androidRuntimeClasspath(libs.compose.uiTooling)
+}
+
+// ÈÎÎñ:½« jna-5.13.0.jar ¿½±´µ½±¾Ä£¿éµÄ jniLibs (libjnidispatch.so ÒÑ¾­ÔÚ jniLibs ÖÐ)
+val patchJnaJar by tasks.registering {
+    description = "Patch the jna-5.13.0.jar in gradle cache to include android dispatchers"
+    val jnaDir = file("' + D + 'rootDir/../../target/jna-5.13.0-android.jar")
+    inputs.file(jnaDir)
+    // The task is here to ensure the jar is in target/ - actual jar substitution is
+    // done by the build script that uses the local maven repo
 }
